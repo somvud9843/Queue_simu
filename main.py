@@ -24,39 +24,43 @@ class fifo_q(PriorityQueue):
 class Packet:
 
     def __init__(self, flow_id, p_num, size, g_time, isLast):
-        self.flow_id = flow_id
+        self.f_id = flow_id
         self.p_num = p_num
         self.size = size
         self.time = g_time
         self.isLast = isLast
 # A thread that produces data
 
-
 class Flow(Thread):
 
-    def __init__(self, f_id, bw, size):
+    def __init__(self,q, f_id, bw, size):
         Thread.__init__(self)
-        self.que = Queue()
-        self.f_id = f_id
+        self.que = q
+        self.id = f_id
         # Bandwidth(bps) 100 * M(2^20)
         self.bw = bw
         # Packet Size(bits)
         self.p_size = random.randint(160, 400)
         self.stopRequest = threading.Event()
+        self.tout = 0
 
     def run(self):
         p_seq = 0
-        while p_seq < 100:
-            # Produce some data
-            # transmission delay
-            # print(self.f_id, "  Delay = ", self.p_size / self.bw)
-            time.sleep(self.p_size / self.bw)
-            data = Packet(self.f_id, p_seq, self.p_size, time.time()-start_time, False)
-            p_seq += 1
-            self.que.put(data)
+        while p_seq < 7:
 
-        data = Packet(self.f_id, p_seq, self.p_size, time.time()-start_time, True)
-        self.que.put(data)
+            if self.tout > 0:
+                print("Flow %d stop sending for %d seconds" % (self.id, self.tout))
+                time.sleep(self.tout)
+                self.tout = 0
+
+            # Produce some data
+            time.sleep(self.p_size / self.bw) # transmission delay
+            # time.sleep(1)
+            data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, False)
+            p_seq += 1
+            self.que.put(data.time, data)
+        data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, True)
+        self.que.put(data.time, data)
 
 
 # FIFO queue
@@ -76,8 +80,9 @@ class Flow_one(Thread):
 
     def run(self):
         p_seq = 0
-        while p_seq < 1000:
-            if self.tout >= 0:
+        while p_seq < 100:
+            if self.tout > 0:
+                print("Flow %d stop sending for %d seconds" % (self.f_id, self.tout))
                 time.sleep(self.tout)
                 self.tout = 0
             # Produce some data
@@ -103,32 +108,40 @@ class Flow_one(Thread):
 
 def consumer(fList):
     f_flow = 0  # Finished flow counter
-    
-    sche = PriorityQueue()
-    comp = []
+    actFL = {} # ActiveFlowList: Dictionray type
     while f_flow != f_num:
         # Get some data
         for f_que in fList:
             data = f_que.que.get()
-            sche.put(data.time, data)
+
             print(data.__dict__)
             sys.stdout.flush()
-            time.sleep(0.001)
             # print("Done", "There is %d packets in queue." % f_que.que.qsize())
             if data.isLast:
                 f_flow += 1
 
-    print("Idle", idle_c, "working", wing)
-
 # consumer of fifo queue
 
 
+    
 def pq(q):
     f_flow = 0  # Finished flow counter
+    sys_VT = 0
+    actFL={}
     while f_flow != f_num:
-        # Get some data
         data = q.get()
-        cvt = data.time()
+        # classify pakcet and update ActiveFlowList
+        if not(data.f_id in actFL):
+            temp_q = Queue()
+            actFL[data.f_id] = temp_q
+            setattr(actFL[data.f_id],"pVFT", 0)
+        setattr(temp_q,"f_id", i)
+        setattr(data,"VST", max(sys_VT,actFL[data.f_id].pVFT))
+        setattr(data,"VFT", data.VST + drpt(data))
+        actFL[data.f_id].pVFT = data.VFT
+        actFL[data.f_id].put(data)
+        
+        sys_VT = data.VST
         print(data.__dict__)
         sys.stdout.flush()
         time.sleep(0.001)
@@ -136,10 +149,21 @@ def pq(q):
         if data.isLast:
             f_flow += 1
 
+#Calculate Packet i's Dominatent Resource porcessing time
+def drpt(pkt):
+    n = pkt.f_id
+    return{
+        1:4,
+        2:3,
+    }[n]
+    
+
 # Create the shared queue and launch both threads
 
 global f_num
 global start_time
+
+# System's virtual time
 start_time = time.time()
 f_num = 2
 
@@ -150,21 +174,17 @@ f_num = 2
 q = fifo_q()
 tList=[]
 for i in range(1, f_num+1):
-    # t = Flow(i, 100*2**10, 512)
-    t = Flow_one(q, i, 100*2**10, 512)
+    t = Flow(q, i, 100*2**10, 512)
+    # t = Flow_one(q, i, 100*2**10, 512)
     t.start()
     tList.append(t)
 
 
-
-# q2= Queue()
-
 # Run the consumer to dequeue
-
-# t1 = Thread(target=consumer, args=(tList,))
 t1 = Thread(target=pq, args=(q,))
 t1.start()
-tList[0].tout=3
+# Make flow stop send for x second. tout = timeout
+# tList[0].tout=5
 
 t1.join()
 
@@ -173,13 +193,3 @@ time.sleep(2)
 
 for t in tList:
     t.stopRequest.set()
-'''
-t2 = Thread(target=flow1, args=(q,))
-t3 = Thread(target=flow2, args=(q,))
-
-t2.start()
-t3.start()
-
-t2.join()
-t3.join()
-'''
