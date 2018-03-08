@@ -80,9 +80,8 @@ class Flow_one(Thread):
                 time.sleep(self.tout)
                 self.tout = 0
             # Produce some data
-            # transmission delay
             # print(self.f_id, "  Delay = ", self.p_size / self.bw)
-            time.sleep(self.p_size / self.bw)
+            time.sleep(self.p_size / self.bw) # transmission delay
             data = Packet(self.f_id, p_seq, self.p_size, time.time()-start_time, False)
             p_seq += 1
             self.que.put(data.time, data)
