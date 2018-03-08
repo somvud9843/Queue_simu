@@ -73,6 +73,7 @@ class Flow_one(Thread):
         self.stopRequest = threading.Event()
         self.tout = 0
         self.__vt = 0
+
     def run(self):
         p_seq = 0
         while p_seq < 1000:
@@ -96,36 +97,15 @@ class Flow_one(Thread):
         return self.__vt
 
 
-def flow2(out_q):
-    f_id = 2
-    id = 0
-    # Bandwidth(bps) 100 * M(2^20)
-    bw = 100 * 2**20
-    # Packet Size(bits)
-    p_size = 512
-    p_last = False
-    while not p_last:
-        # Produce some data
-        if id >= 99:
-            data = Packet(f_id, id, p_size, time.time(), True)
-
-            p_last = True
-        else:
-            data = Packet(f_id, id, p_size, time.time(), False)
-        id += 1
-        # transmission delay
-        time.sleep(p_size / bw)
-        out_q.put(data)
-
 # A thread that consumes data
 # Round robin scheduling
 
 
 def consumer(fList):
     f_flow = 0  # Finished flow counter
-    idle_c = 0
-    wing = 0
+    
     sche = PriorityQueue()
+    comp = []
     while f_flow != f_num:
         # Get some data
         for f_que in fList:
