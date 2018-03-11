@@ -18,6 +18,7 @@ def save_to_csv(data):
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
         w.writerow([data.f_id, data.p_num, data.size, data.time, data.VST, data.VFT])
 
+
 class fifo_q(PriorityQueue):
     def __init__(self):
         PriorityQueue.__init__(self)
@@ -42,9 +43,9 @@ class Packet:
         self.isLast = isLast
 # A thread that produces data
 
-class Flow(Thread):
 
-    def __init__(self,q, f_id, bw, size):
+class Flow(Thread):
+    def __init__(self,q, f_id, bw, size, resource_profile):
         Thread.__init__(self)
         self.que = q
         self.id = f_id
@@ -52,29 +53,35 @@ class Flow(Thread):
         self.bw = bw
         # Packet Size(bits)
         self.p_size = random.randint(160, 400)*8
+        self.rp = resource_profile
         self.stopRequest = threading.Event()
         self.tout = 0
 
     def run(self):
         p_seq = 0
         while p_seq < 7:
-
             if self.tout > 0:
-                print("Flow %d stop sending for %d seconds" % (self.id, self.tout))
-                time.sleep(self.tout)
-                self.tout = 0
+                self.sleep()
 
             # Produce some data
             # time.sleep(self.p_size / self.bw) # transmission delay
             time.sleep(0.1)
             data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, False)
+            setattr(data, "rp", self.rp)
             p_seq += 1
             self.que.put(data.time, data)
         data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, True)
+        setattr(data, "rp", self.rp)
         self.que.put(data.time, data)
 
+    def sleep(self):
+        print("Flow %d stop sending for %d seconds" % (self.id, self.tout))
+        time.sleep(self.tout)
+        self.tout = 0
 
 # Queue with resource profile
+
+
 class Flow_one(Thread):
 
     def __init__(self,q, f_id, bw, size, resource_profile):
@@ -112,29 +119,7 @@ class Flow_one(Thread):
         self.tout = 0
 
 
-# A thread that consumes data
-# Round robin scheduling
-
-
-def consumer(fList):
-    f_flow = 0  # Finished flow counter
-    actFL = {} # ActiveFlowList: Dictionray type
-    while f_flow != f_num:
-        # Get some data
-        for f_que in fList:
-            data = f_que.que.get()
-
-            print(data.__dict__)
-            sys.stdout.flush()
-            # print("Done", "There is %d packets in queue." % f_que.que.qsize())
-            if data.isLast:
-                f_flow += 1
-
-# consumer of fifo queue
-
-
-    
-def pq(q):
+def classifier(q):
     f_flow = 0  # Finished flow counter
     global sys_VT
     global actFL
@@ -148,7 +133,10 @@ def pq(q):
             setattr(actFL[data.f_id],"pVFT", 0)
         setattr(temp_q,"f_id", i)
         setattr(data,"VST", max(sys_VT,actFL[data.f_id].pVFT))
-        setattr(data,"VFT", data.VST + drpt(data))
+        if mode == "DRFQ":
+            setattr(data,"VFT", data.VST + drpt(data))
+        else:
+            setattr(data, "VFT", data.VST + data.rp[0])
         actFL[data.f_id].pVFT = data.VFT
         actFL[data.f_id].put(data)
         
@@ -160,7 +148,7 @@ def pq(q):
         if data.isLast:
             f_flow += 1
 
-#Calculate Packet i's Dominatent Resource porcessing time
+# Calculate Packet i's Dominant Resource processing time
 def drpt(pkt):
     DR = max(pkt.rp)
     return DR
@@ -172,8 +160,12 @@ def drpt(pkt):
         2:3,
     }[n]
     '''
+
+
 def r1():
     global sys_VT
+    global mode
+    global r2Buf
     time.sleep(0.000001)
     idle = True
     while True:
@@ -181,9 +173,9 @@ def r1():
         for keys in actFL:
             if not actFL[keys].empty():
                 data.append(list(actFL[keys].queue)[0])
-        data = sorted(data, key= attrgetter("f_id"))
+        data = sorted(data, key=attrgetter("f_id"))
         try:
-            next_packet = min(data,key=attrgetter("VST"))
+            next_packet = min(data, key=attrgetter("VST"))
             idle = True
         except ValueError:
             if idle:
@@ -194,18 +186,65 @@ def r1():
         except:
             print("Unexpected error:", sys.exc_info()[0])
             break
-        # Remove packet i in flow i's queue 
-        actFL[next_packet.f_id].get()
+        # Remove packet i in flow i's queue and put it in r1 -> r2 buffer
+        buffer = actFL[next_packet.f_id].get()
         print("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num))
         print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
         sys_VT = next_packet.VST
         sys.stdout.flush()
         # Processing time for packet
         time.sleep(0.25)
+
+        if mode == "DRFQ":
+            r2Buf.put(buffer)
+        else:
+            if not(buffer.f_id in r2Buf):
+                temp_q = Queue(maxsize=1)
+                r2Buf[buffer.f_id] = temp_q
+
+
+
+
+def r2():
+    global sys_VT
+    global r2Buf
+    idle = True
+    while True:
+        if mode == "DRFQ":
+            next_packet = r2Buf.get()
+            print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
+        else:
+            data = []
+            for keys in r2Buf:
+                if not r2Buf[keys].empty():
+                    data.append(list(r2Buf[keys].queue)[0])
+            data = sorted(data, key=attrgetter("f_id"))
+            try:
+                next_packet = min(data, key=attrgetter("VST"))
+                idle = True
+            except ValueError:
+                if idle:
+                    idle = False
+                    print("Resource_2 idle...")
+                    sys.stdout.flush()
+                continue
+            except:
+                print("Unexpected error:", sys.exc_info()[0])
+                break
+            # Remove packet i in flow i's queue
+                r2Buf[next_packet.f_id].get()
+            print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
+            print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
+            sys_VT = next_packet.VST
+            sys.stdout.flush()
+            # Processing time for packet
+            time.sleep(0.25)
             # if actFL[next_packet.f_id].empty():
             #     del actFL[next_packet.f_id]
-    
+
+
 if __name__ == "__main__":
+    mode = "DRFQ"
     # Create the shared queue and launch both threads
     start_time = time.time()
     f_num = 2
@@ -213,6 +252,10 @@ if __name__ == "__main__":
     # init_output_file()
     q = fifo_q()
     tList=[]
+    if mode == "DRFQ":
+        r2Buf = Queue()
+    else:
+        r2Buf = {}
     rp = [
         [4, 1],
         [1, 3]
@@ -227,11 +270,13 @@ if __name__ == "__main__":
     
 
     # Run the consumer to dequeue
-    t1 = Thread(target=pq, args=(q,))
+    t1 = Thread(target=classifier, args=(q,))
     t1.start()
 
-    r = Thread(target=r1)
-    r.start()
+    r1 = Thread(target=r1)
+    r1.start()
+    r2 = Thread(target=r2)
+    r2.start()
     # Make flow stop sending for x seconds. (tout = timeout)
     time.sleep(0.4)
     tList[1].tout=2
