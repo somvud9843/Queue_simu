@@ -120,9 +120,9 @@ class Classifier(Thread):
             # print("Done", "There is %d packets in queue." % f_que.que.qsize())
         for keys in actFL:
             print("Flow %d Queue Length: %d" %(keys, actFL[keys].qsize()))
+
     def stop(self):
         self.alive = False
-        print(self, "Stop...")
         self.join()
 
 # Calculate Packet i's Dominant Resource processing time
@@ -155,7 +155,7 @@ class R1(Thread):
         while self.alive:
             data = []
             for keys in actFL:
-                if not actFL[keys].empty() and r2Buf[keys].qsize() < 2:
+                if not actFL[keys].empty() and r2Buf[keys].qsize() <= 1:
                     data.append(list(actFL[keys].queue)[0])
             data = sorted(data, key=attrgetter("time"))
             try:
@@ -164,7 +164,7 @@ class R1(Thread):
             except ValueError:
                 if idle:
                     idle = False
-                    print("Resource_1 idle...")
+                    # print("Resource_1 idle...")
                     sys.stdout.flush()
                 if self.alive:
                     continue
@@ -183,19 +183,19 @@ class R1(Thread):
 
             print("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num), end="")
             print(next_packet.__dict__)
-            print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
+            # print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
             sys_VT = next_packet.VST
             sys.stdout.flush()
             # Processing time for packet
-            time.sleep(next_packet.rp[0] * 10 ** -6)
+            time.sleep(next_packet.rp[0] * speed)
             actFL[next_packet.f_id].task_done()
-
+            counter[0] += 1
             if mode == "DRFQ":
                 r2Buf.put(buffer)
             else:
-                print("buffer %d queue now: %d." % (buffer.f_id, r2Buf[buffer.f_id].qsize()))
-                if r2Buf[buffer.f_id].full():
-                    print("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUULLLLLLLLLLLLLLLL")
+                # print("buffer %d queue now: %d." % (buffer.f_id, r2Buf[buffer.f_id].qsize()))
+                # if r2Buf[buffer.f_id].qsize() >= 1:
+                    # print("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUULLLLLLLLLLLLLLLL")
                 r2Buf[buffer.f_id].put(buffer)
 
     def stop(self):
@@ -223,8 +223,8 @@ class R2(Thread):
                 else:
                     r2_usage[next_packet.f_id] += next_packet.rp[1]
                 print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
-                if r2Buf.empty():
-                    print("Resource_2 idle...")
+                # if r2Buf.empty():
+                #     # print("Resource_2 idle...")
             else:
                 data = []
                 for keys in r2Buf:
@@ -238,7 +238,7 @@ class R2(Thread):
                     if idle:
                         idle = False
                         idleCounter = time.time() - start_time
-                        print("Resource_2 idle...")
+                        # print("Resource_2 idle...")
                     continue
                 except:
                     print("Unexpected error:", sys.exc_info()[0])
@@ -252,11 +252,22 @@ class R2(Thread):
                 else:
                     r2_usage[next_packet.f_id] += next_packet.rp[1]
                 r2Buf[next_packet.f_id].task_done()
-            time.sleep(next_packet.rp[1] * 10 ** -6)
-
+            time.sleep(next_packet.rp[1] * speed)
+            
+            print (next_packet.f_id)
+            if next_packet.f_id == 1 :
+                counter[0] += 1
+            else:
+                counter[1] += 1
         for keys in r1_usage:
-            print("--" * 50, "R1_share: %d = %d" % (keys, r1_usage[key]))
-            print("--" * 50, "R2_share: %d = %d" % (keys, r2_usage[key]))
+            print("--" * 50, "R1_share: %d = %d" % (keys, r1_usage[keys]))
+            print("--" * 50, "R2_share: %d = %d" % (keys, r2_usage[keys]))
+        f10 = r1_usage[1]
+        f11 = r2_usage[1]    
+        f20 = r1_usage[2]
+        f21 = r2_usage[2]
+        print("R1 : < %f , %f > R2:< %f , %f>" % (f10/(f10+f20),f11/(f11+f21),f20/(f10+f20),f21/(f11+f21)))
+        print("packet throughput: %d : %d" % (counter[0],counter[1] ))
         sys.stdout.flush()
         # Processing time for packet
 
@@ -265,9 +276,92 @@ class R2(Thread):
         self.join()
         print(self, "Stop")
 
+class ffModel(Thread):
+    def __init__(self):
+        Thread.__init__(self)
+        self.alive = True
+
+    def run(self):
+        remain = {}
+        remain2 = {}
+        packet = {}
+        usage = {}
+        t = 1 
+        buf = {}
+        while t<3*10**2:
+            for keys in actFL:
+                if not keys in buf:
+                    buf[keys] = None
+                if buf[keys] == None:
+                    if not keys in remain.keys():
+                        if not actFL[keys].empty():
+                            packet[keys] = actFL[keys].get()
+                            remain[keys] = float(packet[keys].rp[0])
+                            # print("Set id: %d , size: %d" % (keys, remain[keys]))
+            if len(remain) > 0:
+                f_num = len(remain)
+                r = 1 / f_num
+                
+                for f_id in list(remain.keys()):
+                    remain[f_id] = remain[f_id] - r
+                    if not (f_id in usage):
+                        usage[f_id]= [r]
+                    else:
+                        usage[f_id][0] = usage[f_id][0] + r
+
+                    if remain[f_id] == 0 :
+                        print("R1----------packet %d Done at %d." % (f_id, t ))
+                        buf[f_id] = packet[f_id]
+                        del remain[f_id]
+                        
+            for keys in buf:
+                if buf[keys] != None:
+                    if not keys in remain2.keys():
+                        remain2[keys] = float(buf[keys].rp[1])
+                        buf[keys] = None
+                        # print("R2----------Set id: %d , size: %d" % (keys, remain2[keys]))
+          
+            t += 1
+            time.sleep(0.001)
+
+            if len(remain2) > 0:
+                f_num2 = len(remain2)
+                r2 = 1 / f_num2
+                
+                for f_id in list(remain2.keys()):
+                    remain2[f_id] = remain2[f_id] - r2
+                    if len(usage[f_id]) <= 2 :
+                        usage[f_id].append(r)
+                    else:
+                        usage[f_id][1] = usage[f_id][1] + r
+                        
+                    if remain2[f_id] == 0 :
+                        # print("R2************packet %d Done at %d." % (f_id, t ))
+                        del remain2[f_id]
+
+            sys.stdout.flush()
+
+        for key in usage:
+            print("--"*50, "R1_share: %d = %d" % (key, usage[key][0]))
+            print("--"*50, "R2_share: %d = %d" % (key, usage[key][1]))
+            
+        r10 = usage[1][0]
+        r11 = usage[1][1]
+        r20 = usage[2][0]
+        r21 = usage[2][1]
+        print("R1 : < %f , %f > R2:< %f , %f>" % (r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21)))
+        sys.stdout.flush()
+
+    def stop(self):
+        self.alive = False
+        self.join()
 
 if __name__ == "__main__":
     global on
+    global speed
+    global counter
+    counter= [0,0]
+    speed = 10 ** -3
     on = True
     r1_usage = {}
     r2_usage = {}
@@ -284,17 +378,15 @@ if __name__ == "__main__":
     else:
         r2Buf = {}
     rp = [
-        [4, 2],
-        [1, 2]
+        [20, 1],
+        [10, 11]
     ]
     for i in range(1, f_num+1):
-        if 1:
-            t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
-        else:
-            t = Flow(q, i, 200*2**20, 512)
+        t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
         t.start()
         tList.append(t)
 
+    
     # Run the consumer to dequeue
     t1 = Classifier(q)
     t1.start()
@@ -302,19 +394,20 @@ if __name__ == "__main__":
     r1.start()
     r2 = R2()
     r2.start()
-
+    # ff = ffModel()
+    # ff.start()
+    # tList.append(ff)
     tList.append(t1)
-    # tList.append(r1)
-    # tList.append(r2)
+    tList.append(r1)
+    tList.append(r2)
 
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
 
-    time.sleep(3)
-    on = False
-    for key in r1_usage:
-        print("--" * 50, "R1_share: %d = %d" % (key, r1_usage[key]))
-        print("--" * 50, "R2_share: %d = %d" % (key, r2_usage[key]))
+    time.sleep(2)
+    # for key in r1_usage:
+    #     print("--" * 50, "R1_share: %d = %d" % (key, r1_usage[key]))
+    #     print("--" * 50, "R2_share: %d = %d" % (key, r2_usage[key]))
 
     for t in tList:
         t.stop()

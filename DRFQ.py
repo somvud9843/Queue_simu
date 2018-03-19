@@ -1,6 +1,7 @@
 from queue import Queue
 from queue import PriorityQueue
 from threading import Thread
+from threading import Timer, Thread, Event
 import sys
 import time
 import random
@@ -91,7 +92,8 @@ class Flow_one(Thread):
         # Bandwidth(bps) 100 * M(2^20)
         self.bw = bw
         # Packet Size(bits)
-        self.p_size = random.randint(160, 400)*8
+        # self.p_size = random.randint(160, 400)*8
+        self.p_size = 50 * 8
         self.rp = resource_profile
         self.stopRequest = threading.Event()
         self.tout = 0
@@ -185,6 +187,7 @@ class R1(Thread):
         time.sleep(0.000001)
         idle = True
         # while self.alive:
+        c = 0
         while on:
             data = []
             for keys in actFL:
@@ -216,14 +219,8 @@ class R1(Thread):
             sys.stdout.flush()
             # Processing time for packet
             time.sleep(next_packet.rp[0] *10**-6)
-
-            if mode == "DRFQ":
-                r2Buf.put(buffer)
-            else:
-                if not(buffer.f_id in r2Buf):
-                    temp_q = Queue(maxsize=1)
-                    r2Buf[buffer.f_id] = temp_q
-
+            r2Buf.put(buffer)
+        print("R1:", c)
     def stop(self):
         self.alive = False
         self.join()
@@ -279,6 +276,13 @@ class R2(Thread):
             print("--"*50, "R1_share: %d = %d" % (key, r1_usage[key]))
             print("--"*50, "R2_share: %d = %d" % (key, r2_usage[key]))
 
+        f10 = r1_usage[1]
+        f11 = r2_usage[1]    
+        f20 = r1_usage[2]
+        f21 = r2_usage[2]
+        print("R1 : < %f , %f > R2:< %f , %f>" % (f10/(f10+f20),f11/(f11+f21),f20/(f10+f20),f21/(f11+f21)))
+        sys.stdout.flush()
+
     def stop(self):
         self.alive = False
         self.join()
@@ -311,7 +315,7 @@ if __name__ == "__main__":
         if 1:
             t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
         else:
-            t = Flow(q, i, 200*2**20, 512)
+            t = Flow(q, i, 200*2**20, 512,rp[[i-1]])
         t.start()
         tList.append(t)
 
@@ -330,7 +334,7 @@ if __name__ == "__main__":
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
 
-    time.sleep(0.1)
+    time.sleep(0.2)
     on = False
     for t in tList:
         t.stop()
