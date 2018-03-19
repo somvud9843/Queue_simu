@@ -187,7 +187,6 @@ class R1(Thread):
         time.sleep(0.000001)
         idle = True
         # while self.alive:
-        c = 0
         while on:
             data = []
             for keys in actFL:
@@ -207,11 +206,11 @@ class R1(Thread):
                 print("Unexpected error:", sys.exc_info()[0])
                 break
             # Remove packet i in flow i's queue and put it in r1 -> r2 buffer
-            buffer = actFL[next_packet.f_id].get()
-            if not (next_packet.f_id in r1_usage):
-                r1_usage[next_packet.f_id] = next_packet.rp[0]
+            buffer = actFL[next_packet.f_id].get()         
+            if not(next_packet.f_id in usage):
+                usage[next_packet.f_id] = [next_packet.rp[0]]
             else:
-                r1_usage[next_packet.f_id] += next_packet.rp[0]
+                usage[next_packet.f_id][0] += next_packet.rp[0]
 
             print("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num))
             print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
@@ -220,7 +219,6 @@ class R1(Thread):
             # Processing time for packet
             time.sleep(next_packet.rp[0] *10**-6)
             r2Buf.put(buffer)
-        print("R1:", c)
     def stop(self):
         self.alive = False
         self.join()
@@ -234,17 +232,17 @@ class R2(Thread):
     def run(self):
         global sys_VT
         global r2Buf
-        global r2_usage
         idle = True
 
         # while self.alive:
         while on:
             if mode == "DRFQ":
                 next_packet = r2Buf.get()
-                if not (next_packet.f_id in r2_usage):
-                    r2_usage[next_packet.f_id] = next_packet.rp[1]
+                if len(usage[next_packet.f_id]) == 1:
+                    usage[next_packet.f_id].append(next_packet.rp[1])
                 else:
-                    r2_usage[next_packet.f_id] += next_packet.rp[1]
+                    usage[next_packet.f_id][1] += next_packet.rp[1]
+
                 print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
                 if r2Buf.empty():
                     print("Resource_2 idle...")
@@ -271,17 +269,17 @@ class R2(Thread):
             sys.stdout.flush()
             # Processing time for packet
             time.sleep(next_packet.rp[1] * 10**-6)
+        total_r1 = 0
+        total_r2 = 0
+        sorted(usage)
+        for key in usage:
+            total_r1 += usage[key][0]
+            total_r2 += usage[key][1]
+        for key in usage:
+            print("Flow %d <%d, %d> --- <%f, %f>" % (key, usage[key][0], usage[key][1],usage[key][0]/total_r1 ,usage[key][1]/total_r2 ))
 
-        for key in r1_usage:
-            print("--"*50, "R1_share: %d = %d" % (key, r1_usage[key]))
-            print("--"*50, "R2_share: %d = %d" % (key, r2_usage[key]))
-
-        f10 = r1_usage[1]
-        f11 = r2_usage[1]    
-        f20 = r1_usage[2]
-        f21 = r2_usage[2]
-        print("R1 : < %f , %f > R2:< %f , %f>" % (f10/(f10+f20),f11/(f11+f21),f20/(f10+f20),f21/(f11+f21)))
         sys.stdout.flush()
+
 
     def stop(self):
         self.alive = False
@@ -290,13 +288,15 @@ class R2(Thread):
 
 if __name__ == "__main__":
     global on
+    global usage
+    usage = {}
     on = True
     r1_usage = {}
     r2_usage = {}
     mode = "DRFQ"
     # Create the shared queue and launch both threads
     start_time = time.time()
-    f_num = 2
+    f_num = 3
     sys_VT = 0
     # init_output_file()
     q = fifo_q()
@@ -308,14 +308,12 @@ if __name__ == "__main__":
 
     rp = [
         [4, 1],
-        [1, 3]
+        [1, 3],
+        [2, 7]
     ]
 
     for i in range(1, f_num+1):
-        if 1:
-            t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
-        else:
-            t = Flow(q, i, 200*2**20, 512,rp[[i-1]])
+        t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
         t.start()
         tList.append(t)
 
@@ -334,7 +332,7 @@ if __name__ == "__main__":
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
 
-    time.sleep(0.2)
+    time.sleep(20)
     on = False
     for t in tList:
         t.stop()
