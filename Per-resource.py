@@ -7,6 +7,13 @@ import random
 import threading
 import csv
 from operator import attrgetter
+import os
+import logging
+
+clear = lambda: os.system('cls')
+clear()
+FORMAT = " %(message)s"
+logging.basicConfig(level = logging.INFO,format=FORMAT)
 
 def init_output_file():
     with open('mycsvfile.csv', 'w', newline='') as f:  # Just use 'w' mode in 3.x
@@ -98,7 +105,7 @@ class Classifier(Thread):
         global sys_VT
         global actFL
         actFL={}
-        while self.alive:
+        while on:
             data = self.q.get()
             # classify pakcet and update ActiveFlowList
             if not(data.f_id in actFL):
@@ -118,8 +125,7 @@ class Classifier(Thread):
             # save_to_csv(data)
             sys.stdout.flush()
             # print("Done", "There is %d packets in queue." % f_que.que.qsize())
-        for keys in actFL:
-            print("Flow %d Queue Length: %d" %(keys, actFL[keys].qsize()))
+        
 
     def stop(self):
         self.alive = False
@@ -152,9 +158,11 @@ class R1(Thread):
         time.sleep(0.000001)
         idle = True
 
-        while self.alive:
+        while on:
             data = []
             for keys in actFL:
+                if r2Buf[keys].qsize() > 1:
+                    print(keys, "Block")
                 if not actFL[keys].empty() and r2Buf[keys].qsize() <= 1:
                     data.append(list(actFL[keys].queue)[0])
             data = sorted(data, key=attrgetter("time"))
@@ -176,31 +184,29 @@ class R1(Thread):
             # Remove packet i in flow i's queue and put it in r1 -> r2 buffer
             buffer = actFL[next_packet.f_id].get()
 
-            if not (next_packet.f_id in r1_usage):
-                r1_usage[next_packet.f_id] = next_packet.rp[0]
-            else:
-                r1_usage[next_packet.f_id] += next_packet.rp[0]
+            # if not (next_packet.f_id in r1_usage):
+            #     r1_usage[next_packet.f_id] = next_packet.rp[0]
+            # else:
+            #     r1_usage[next_packet.f_id] += next_packet.rp[0]
 
-            print("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num), end="")
-            print(next_packet.__dict__)
-            # print("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
+            logging.debug("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num))
+            logging.debug(next_packet.__dict__)
+            logging.debug("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
             sys_VT = next_packet.VST
             sys.stdout.flush()
             # Processing time for packet
             time.sleep(next_packet.rp[0] * speed)
             actFL[next_packet.f_id].task_done()
-            counter[0] += 1
-            if mode == "DRFQ":
-                r2Buf.put(buffer)
+             # Coount the number packet been processing
+            if not next_packet.f_id in packet_counter:
+                packet_counter[next_packet.f_id] = 1
             else:
-                # print("buffer %d queue now: %d." % (buffer.f_id, r2Buf[buffer.f_id].qsize()))
-                # if r2Buf[buffer.f_id].qsize() >= 1:
-                    # print("FUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUULLLLLLLLLLLLLLLL")
-                r2Buf[buffer.f_id].put(buffer)
+                packet_counter[next_packet.f_id] += 1
+
+            r2Buf[buffer.f_id].put(buffer)
 
     def stop(self):
         self.alive = False
-        print(self, "Stop...")
         self.join()
 
 
@@ -214,67 +220,63 @@ class R2(Thread):
         global r2Buf
         global r2_usage
         idle = True
-        start_time = time.time()
-        while self.alive:
-            if mode == "DRFQ":
-                next_packet = r2Buf.get()
-                if not (next_packet.f_id in r2_usage):
-                    r2_usage[next_packet.f_id] = next_packet.rp[1]
-                else:
-                    r2_usage[next_packet.f_id] += next_packet.rp[1]
-                print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
-                # if r2Buf.empty():
-                #     # print("Resource_2 idle...")
-            else:
-                data = []
-                for keys in r2Buf:
-                    if not r2Buf[keys].empty():
-                        data.append(list(r2Buf[keys].queue)[0])
-                data = sorted(data, key=attrgetter("time"))
-                try:
-                    next_packet = min(data, key=attrgetter("VFT"))
-                    idle = True
-                except ValueError:
-                    if idle:
-                        idle = False
-                        idleCounter = time.time() - start_time
-                        # print("Resource_2 idle...")
-                    continue
-                except:
-                    print("Unexpected error:", sys.exc_info()[0])
-                    break
-                # Remove packet i in flow i's queue
-                r2Buf[next_packet.f_id].get()
-                print("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
+        while on:
+            data = []
+            for keys in r2Buf:
+                if not r2Buf[keys].empty():
+                    data.append(list(r2Buf[keys].queue)[0])
+            data = sorted(data, key=attrgetter("time"))
+            try:
+                next_packet = min(data, key=attrgetter("VFT"))
+                idle = True
+            except ValueError:
+                if idle:
+                    idle = False
+                    # print("Resource_2 idle...")
+                continue
+            except:
+                print("Unexpected error:", sys.exc_info()[0])
+                break
+            # Remove packet i in flow i's queue
+            r2Buf[next_packet.f_id].get()
+            logging.debug("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
 
-                if not (next_packet.f_id in r2_usage):
-                    r2_usage[next_packet.f_id] = next_packet.rp[1]
-                else:
-                    r2_usage[next_packet.f_id] += next_packet.rp[1]
-                r2Buf[next_packet.f_id].task_done()
-            time.sleep(next_packet.rp[1] * speed)
-            
-            print (next_packet.f_id)
-            if next_packet.f_id == 1 :
-                counter[0] += 1
+            # if not (next_packet.f_id in r2_usage):
+            #     r2_usage[next_packet.f_id] = next_packet.rp[1]
+            # else:
+            #     r2_usage[next_packet.f_id] += next_packet.rp[1]
+            if not(next_packet.f_id in usage):
+                usage[next_packet.f_id] = [next_packet.rp[0]]
+                usage[next_packet.f_id].append(next_packet.rp[1])
             else:
-                counter[1] += 1
-        for keys in r1_usage:
-            print("--" * 50, "R1_share: %d = %d" % (keys, r1_usage[keys]))
-            print("--" * 50, "R2_share: %d = %d" % (keys, r2_usage[keys]))
-        f10 = r1_usage[1]
-        f11 = r2_usage[1]    
-        f20 = r1_usage[2]
-        f21 = r2_usage[2]
-        print("R1 : < %f , %f > R2:< %f , %f>" % (f10/(f10+f20),f11/(f11+f21),f20/(f10+f20),f21/(f11+f21)))
-        print("packet throughput: %d : %d" % (counter[0],counter[1] ))
+                usage[next_packet.f_id][0] += next_packet.rp[0]
+                usage[next_packet.f_id][1] += next_packet.rp[1]
+
+
+            r2Buf[next_packet.f_id].task_done()
+            time.sleep(next_packet.rp[1] * speed)
+            # Coount the number packet been processing
+            if not next_packet.f_id in packet_counter:
+                packet_counter[next_packet.f_id] = 1
+            else:
+                packet_counter[next_packet.f_id] += 1
+        total_r1 = 0
+        total_r2 = 0
+        sorted(usage)
+        for key in usage:
+            total_r1 += usage[key][0]
+            total_r2 += usage[key][1]
+        for key in usage:
+            logging.info("Flow %d <%d, %d> --- <%f, %f>" % (key, usage[key][0], usage[key][1],usage[key][0]/total_r1 ,usage[key][1]/total_r2 ))
+        for keys in packet_counter:
+            logging.info("Flow %d : %d packets" % (keys, packet_counter[keys]))
         sys.stdout.flush()
+
         # Processing time for packet
 
     def stop(self):
         self.alive = False
         self.join()
-        print(self, "Stop")
 
 class ffModel(Thread):
     def __init__(self):
@@ -359,9 +361,12 @@ class ffModel(Thread):
 if __name__ == "__main__":
     global on
     global speed
-    global counter
-    counter= [0,0]
-    speed = 10 ** -3
+    global packet_counter
+    global usage
+    usage = {}
+    packet_counter = {}
+    # 10^-2 is best setting, or it will too fast
+    speed = 10 ** -2
     on = True
     r1_usage = {}
     r2_usage = {}
@@ -378,7 +383,7 @@ if __name__ == "__main__":
     else:
         r2Buf = {}
     rp = [
-        [20, 1],
+        [20, 11],
         [10, 11]
     ]
     for i in range(1, f_num+1):
@@ -404,14 +409,13 @@ if __name__ == "__main__":
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
 
-    time.sleep(2)
-    # for key in r1_usage:
-    #     print("--" * 50, "R1_share: %d = %d" % (key, r1_usage[key]))
-    #     print("--" * 50, "R2_share: %d = %d" % (key, r2_usage[key]))
+    time.sleep(21600)
+
+    on = False
 
     for t in tList:
         t.stop()
-        print("Stop %s"%(t))
+        # print("Stop %s"%(t))
 
 
 

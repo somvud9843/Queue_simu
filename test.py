@@ -38,7 +38,6 @@ class Packet:
 def main():
     q = Queue()
     qDict = {}
-    data = []
     for i in range(1,3):
         qDict[i] = Queue(maxsize=0)
         for j in range(0,10):
@@ -74,7 +73,7 @@ def q_go():
         qDict[id].put(p.arr_time, p)
 
         if id == 1:
-            setattr(p,"rp",[20,1])
+            setattr(p,"rp",[20,11])
         else:
             setattr(p,"rp",[10,11])
         t += 1
