@@ -155,16 +155,20 @@ class R1(Thread):
         global mode
         global r2Buf
         global r1_usage
-        time.sleep(0.000001)
+        t = time.clock()
         idle = True
+        bf = False
 
         while on:
             data = []
             for keys in actFL:
                 if r2Buf[keys].qsize() > 1:
-                    print(keys, "Block")
+                    bf = True
+                    if not(bf):
+                        logging.debug("Buffer %d : %d" % (keys, r2Buf[keys].qsize()))
                 if not actFL[keys].empty() and r2Buf[keys].qsize() <= 1:
                     data.append(list(actFL[keys].queue)[0])
+                    bf = False
             data = sorted(data, key=attrgetter("time"))
             try:
                 next_packet = min(data, key=attrgetter("VST"))
@@ -189,7 +193,7 @@ class R1(Thread):
             # else:
             #     r1_usage[next_packet.f_id] += next_packet.rp[0]
 
-            logging.debug("Produce packet:%d-%d" % (next_packet.f_id,next_packet.p_num))
+            logging.debug("Produce packet:%d-%d %f" % (next_packet.f_id,next_packet.p_num, time.clock()-t ))
             logging.debug(next_packet.__dict__)
             logging.debug("Update System Virtual Time: %d -> %d" % (sys_VT, next_packet.VST))
             sys_VT = next_packet.VST
@@ -197,12 +201,8 @@ class R1(Thread):
             # Processing time for packet
             time.sleep(next_packet.rp[0] * speed)
             actFL[next_packet.f_id].task_done()
-             # Coount the number packet been processing
-            if not next_packet.f_id in packet_counter:
-                packet_counter[next_packet.f_id] = 1
-            else:
-                packet_counter[next_packet.f_id] += 1
 
+            setattr(buffer,"vst2", time.time())
             r2Buf[buffer.f_id].put(buffer)
 
     def stop(self):
@@ -214,12 +214,14 @@ class R2(Thread):
     def __init__(self):
         Thread.__init__(self)
         self.alive = True
+        self.idle = True
+
 
     def run(self):
         global sys_VT
         global r2Buf
         global r2_usage
-        idle = True
+        t =time.clock()
         while on:
             data = []
             for keys in r2Buf:
@@ -227,11 +229,11 @@ class R2(Thread):
                     data.append(list(r2Buf[keys].queue)[0])
             data = sorted(data, key=attrgetter("time"))
             try:
-                next_packet = min(data, key=attrgetter("VFT"))
-                idle = True
+                next_packet = min(data, key=attrgetter("vst2"))
+                self.idle = True
             except ValueError:
-                if idle:
-                    idle = False
+                if self.idle:
+                    self.idle = False
                     # print("Resource_2 idle...")
                 continue
             except:
@@ -239,7 +241,7 @@ class R2(Thread):
                 break
             # Remove packet i in flow i's queue
             r2Buf[next_packet.f_id].get()
-            logging.debug("Produce packet(R2):%d-%d" % (next_packet.f_id, next_packet.p_num))
+            logging.debug("Produce packet(R2):%d-%d %f" % (next_packet.f_id, next_packet.p_num, time.clock() - t))
 
             # if not (next_packet.f_id in r2_usage):
             #     r2_usage[next_packet.f_id] = next_packet.rp[1]
@@ -252,14 +254,17 @@ class R2(Thread):
                 usage[next_packet.f_id][0] += next_packet.rp[0]
                 usage[next_packet.f_id][1] += next_packet.rp[1]
 
-
-            r2Buf[next_packet.f_id].task_done()
-            time.sleep(next_packet.rp[1] * speed)
             # Coount the number packet been processing
             if not next_packet.f_id in packet_counter:
                 packet_counter[next_packet.f_id] = 1
             else:
                 packet_counter[next_packet.f_id] += 1
+
+            r2Buf[next_packet.f_id].task_done()
+            self.idle = False
+            time.sleep(next_packet.rp[1] * speed)
+            self.idle = True
+            
         total_r1 = 0
         total_r2 = 0
         sorted(usage)
@@ -271,8 +276,6 @@ class R2(Thread):
         for keys in packet_counter:
             logging.info("Flow %d : %d packets" % (keys, packet_counter[keys]))
         sys.stdout.flush()
-
-        # Processing time for packet
 
     def stop(self):
         self.alive = False
@@ -363,10 +366,11 @@ if __name__ == "__main__":
     global speed
     global packet_counter
     global usage
+    global r2
     usage = {}
     packet_counter = {}
     # 10^-2 is best setting, or it will too fast
-    speed = 10 ** -2
+    speed = 10 ** -3
     on = True
     r1_usage = {}
     r2_usage = {}
@@ -382,9 +386,10 @@ if __name__ == "__main__":
         r2Buf = Queue()
     else:
         r2Buf = {}
+
     rp = [
-        [20, 11],
-        [10, 11]
+        [4, 7],
+        [10,3]
     ]
     for i in range(1, f_num+1):
         t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
@@ -409,7 +414,7 @@ if __name__ == "__main__":
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
 
-    time.sleep(21600)
+    time.sleep(3)
 
     on = False
 

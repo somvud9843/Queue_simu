@@ -197,6 +197,8 @@ class R1(Thread):
 
         # while self.alive:
         while on:
+            if r2Buf.qsize() > 0:
+                continue
             data = []
             for keys in actFL:
                 if not actFL[keys].empty():
@@ -260,7 +262,6 @@ class R2(Thread):
         packet_counter = {}
         # while self.alive:
         while on:
-
             next_packet = r2Buf.get()
 
             if not(next_packet.f_id in usage):
@@ -317,7 +318,7 @@ if __name__ == "__main__":
     mode = "DRFQ"
     # Create the shared queue and launch both threads
     start_time = time.time()
-    f_num = 2
+    
     sys_VT = 0
     # init_output_file()
     q = fifo_q()
@@ -328,10 +329,11 @@ if __name__ == "__main__":
         r2Buf = {}
 
     rp = [
-        [20, 11],
-        [10, 11]
+        [20, 15],
+        [1, 9]
     ]
 
+    f_num = len(rp)
     for i in range(1, f_num+1):
         t = Flow_one(q, i, 200*2**20, 400, rp[i-1])
         t.start()
@@ -351,12 +353,12 @@ if __name__ == "__main__":
 
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
-    while time.time()-start_time < 21600 :
-        print("Time:", time.time()-start_time, r1.packet_counter.items())
-        time.sleep(1)
+    # while time.time()-start_time < 21600 :
+    #     print("Time:", time.time()-start_time, r1.packet_counter.items())
+    #     time.sleep(1)
 
 
-    time.sleep(21600)
+    time.sleep(3)
     on = False
     for t in tList:
         t.stop()

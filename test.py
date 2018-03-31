@@ -51,7 +51,7 @@ def main():
             if i == 1:
                 setattr(p,"rp",[4,2])
             else:
-                setattr(p,"rp",[1,2])
+                setattr(p,"rp",[1,3])
     return qDict
 
 
@@ -70,12 +70,9 @@ def q_go():
         p = Packet(id, seq[id], 123, time.time(), False)
         if not id in qDict:
             qDict[id] = fifo_q()
+        setRP(p, id)
+        
         qDict[id].put(p.arr_time, p)
-
-        if id == 1:
-            setattr(p,"rp",[20,11])
-        else:
-            setattr(p,"rp",[10,11])
         t += 1
     print(seq[1],seq[2])
 
@@ -86,6 +83,15 @@ def dict_list():
     buf  = dict.fromkeys(dd)
     print(len(buf))
 
+def setRP(packet, id):
+    rp = [
+        [4, 7],
+        [10,3]
+    ]
+
+
+    setattr(packet, "rp", rp[id-1])
+    return packet
 # def slove_funtion():
 #     x = Symbol('x')
 #     y = Symbol('y')
@@ -105,7 +111,7 @@ def ffmodel_(qDict):
     t = 1 
     buf  = dict.fromkeys(qDict)
 
-    while t<28*10**10:
+    while t<28*10**3:
         for keys in qDict:
             if buf[keys] == None:
                 if not keys in remain.keys():
@@ -175,8 +181,8 @@ class ffmodel(Thread):
         buf = {}
         counter_f1 = 0
         counter_f2 = 0
-        print(qDict[1].get().__dict__)
-        while t<2*10**3.168:
+        # print(qDict[1].get().__dict__)
+        while t<2*10**2.5:
             for keys in qDict:
                 if not keys in buf:
                     buf[keys] = None
@@ -190,7 +196,6 @@ class ffmodel(Thread):
             if len(remain) > 0:
                 f_num = len(remain)
                 r = 1 / f_num
-                
                 for f_id in list(remain.keys()):
                     remain[f_id] = remain[f_id] - r
                     if not (f_id in usage):
@@ -199,7 +204,7 @@ class ffmodel(Thread):
                         usage[f_id][0] = usage[f_id][0] + r
 
                     if remain[f_id] == 0 :
-                        print("R1++++++++++++packet at flow %d Done at %d." % (f_id, t ))
+                        print("R1++++++++++++packet at flow %d Done at %d." % (f_id, t))
                         buf[f_id] = packet[f_id]
                         del remain[f_id]
                         
@@ -218,13 +223,13 @@ class ffmodel(Thread):
                 for f_id in list(remain2.keys()):
                     remain2[f_id] = remain2[f_id] - r2
                     if len(usage[f_id]) <= 2 :
-                        usage[f_id].append(r)
+                        usage[f_id].append(r2)
                     else:
-                        usage[f_id][1] = usage[f_id][1] + r
+                        usage[f_id][1] = usage[f_id][1] + r2
                         
                     if remain2[f_id] == 0 :
                         # 
-                        # print("R2************packet %d Done at %d." % (f_id, t ))
+                        print("R2************packet %d Done at %d." % (f_id, t ))
                         if f_id == 1 :
                             counter_f1 += 1
                         else:
