@@ -51,7 +51,7 @@ def main():
             if i == 1:
                 setattr(p,"rp",[4,2])
             else:
-                setattr(p,"rp",[1,3])
+                setattr(p,"rp",[2,2])
     return qDict
 
 
@@ -85,10 +85,9 @@ def dict_list():
 
 def setRP(packet, id):
     rp = [
-        [4, 7],
-        [10,3]
+        [13, 20], [6, 3]
     ]
-
+# <8, 19>, <16, 25>
 
     setattr(packet, "rp", rp[id-1])
     return packet
@@ -182,7 +181,7 @@ class ffmodel(Thread):
         counter_f1 = 0
         counter_f2 = 0
         # print(qDict[1].get().__dict__)
-        while t<2*10**2.5:
+        while t<2*10**4:
             for keys in qDict:
                 if not keys in buf:
                     buf[keys] = None

@@ -388,8 +388,7 @@ if __name__ == "__main__":
         r2Buf = {}
 
     rp = [
-        [4, 7],
-        [10,3]
+        [8, 11], [30, 16]
     ]
     for i in range(1, f_num+1):
         t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
