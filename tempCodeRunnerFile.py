@@ -1,2 +1,1 @@
-
-    return packet
+rint("666")
