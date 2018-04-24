@@ -69,7 +69,7 @@ class Flow_one(Thread):
 
     def run(self):
         p_seq = 0
-        while self.alive:
+        while on:
         # while self.alive:
             if self.tout > 0:
                 self.sleep()
@@ -115,35 +115,16 @@ class Classifier(Thread):
                 setattr(actFL[data.f_id],"pVFT", 0)
             setattr(temp_q,"f_id", i)
             setattr(data,"VST", max(sys_VT, actFL[data.f_id].pVFT))
-            if mode == "DRFQ":
-                setattr(data,"VFT", data.VST + drpt(data))
-            else:
-                setattr(data, "VFT", data.VST + data.rp[0])
+            setattr(data,"VFT", data.VST + data.rp[0])
             actFL[data.f_id].pVFT = data.VFT
             actFL[data.f_id].put(data)
             # print(data.__dict__)
             # save_to_csv(data)
             sys.stdout.flush()
             # print("Done", "There is %d packets in queue." % f_que.que.qsize())
-        
-
     def stop(self):
         self.alive = False
         self.join()
-
-# Calculate Packet i's Dominant Resource processing time
-def drpt(pkt):
-    DR = max(pkt.rp)
-    return DR
-    # Fix demand
-    '''
-    n = pkt.f_id
-    return{
-        1:4,
-        2:3,
-    }[n]
-    '''
-
 
 class R1(Thread):
     def __init__(self):
@@ -161,12 +142,12 @@ class R1(Thread):
 
         while on:
             data = []
-            for keys in actFL:
-                if r2Buf[keys].qsize() > 1:
+            for keys in list(actFL):
+                if r2Buf[keys].qsize() > 10:
                     bf = True
                     if not(bf):
                         logging.debug("Buffer %d : %d" % (keys, r2Buf[keys].qsize()))
-                if not actFL[keys].empty() and r2Buf[keys].qsize() <= 1:
+                if not actFL[keys].empty() and r2Buf[keys].qsize() <= 10:
                     data.append(list(actFL[keys].queue)[0])
                     bf = False
             data = sorted(data, key=attrgetter("time"))
@@ -221,10 +202,11 @@ class R2(Thread):
         global sys_VT
         global r2Buf
         global r2_usage
+        global on
         t =time.clock()
         while on:
             data = []
-            for keys in r2Buf:
+            for keys in list(r2Buf):
                 if not r2Buf[keys].empty():
                     data.append(list(r2Buf[keys].queue)[0])
             data = sorted(data, key=attrgetter("time"))
@@ -264,6 +246,9 @@ class R2(Thread):
             self.idle = False
             time.sleep(next_packet.rp[1] * speed)
             self.idle = True
+
+            if sum(packet_counter.values()) > 200:
+                on = False
             
         total_r1 = 0
         total_r2 = 0
@@ -362,7 +347,6 @@ class ffModel(Thread):
         self.join()
 
 if __name__ == "__main__":
-    global on
     global speed
     global packet_counter
     global usage
@@ -370,7 +354,7 @@ if __name__ == "__main__":
     usage = {}
     packet_counter = {}
     # 10^-2 is best setting, or it will too fast
-    speed = 10 ** -2
+    speed = 10 ** -3
     on = True
     r1_usage = {}
     r2_usage = {}
@@ -388,10 +372,10 @@ if __name__ == "__main__":
         r2Buf = {}
 
     rp = [
-        [16,24],[10,8]
+        [4,2],[1, 2]
     ]
     for i in range(1, f_num+1):
-        t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
+        t = Flow_one(q, i, 200*2**20, 256, rp[i-1])
         t.start()
         tList.append(t)
 
@@ -411,16 +395,7 @@ if __name__ == "__main__":
     tList.append(r2)
 
     # Make flow stop sending for x seconds. (tout = timeout)
-    # tList[1].tout=2
-
-    time.sleep(6)
-
-    on = False
-
-    for t in tList:
-        t.stop()
-        # print("Stop %s"%(t))
-
+    # tList[1].tout=
 
 
 

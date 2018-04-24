@@ -1,1 +1,1 @@
-rint("666")
+counter

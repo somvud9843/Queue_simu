@@ -10,6 +10,7 @@ from threading import Timer, Thread, Event
 import csv
 import logging
 
+
 FORMAT = " %(message)s"
 logging.basicConfig(level = logging.INFO,format=FORMAT)
 
@@ -20,9 +21,10 @@ def init_output_file():
         # w.writerow(["f_id", "p_num", "size", "time", "VST", "VFT"])
 
 def save_to_csv(data):
-    with open('test.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
+    with open('simu.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
         w.writerow(data)
+
 
 class fifo_q(PriorityQueue):
     def __init__(self):
@@ -55,7 +57,7 @@ def q_go():
     seq = {}
     global qDict
     qDict={}
-    while t<1*10**4.5:
+    while t<1*10**5:
         id = random.randint(1,2)
         if not id in seq:
             seq[id] = 0
@@ -163,23 +165,33 @@ class ffmodel(Thread):
         remain2 = {}
         packet = {}
         usage = {}
-        t = 1 
+        t = 1
         # buf  = dict.fromkeys(self.q)
         buf = {}
         counter_f1 = 0
         counter_f2 = 0
+        start={}
+        end={}
         # print(qDict[1].get().__dict__)
-        while t<2*10**4:
+        # while t<2*10**4:
+        while counter_f1+counter_f2<20000:
             for keys in qDict:
                 if not keys in buf:
-                    buf[keys] = None
-                if buf[keys] == None :
+                    buf[keys] = Queue()
+                if buf[keys].qsize()<10 :
+                    # print(keys, buf[keys].qsize())
                     if not keys in remain.keys():
                         if not qDict[keys].empty():
                             packet[keys] = qDict[keys].get()
                             remain[keys] = float(packet[keys].rp[0])
-                            logging.debug("R1-Set id: %d , size: %d" % (keys, remain[keys]))
-                
+                            logging.debug("R1-Set id: %d-%d, size: %d at %d" % (keys, packet[keys].p_num, remain[keys],t-1))
+
+                            if not (keys,1) in start.keys(): 
+                                start[keys,1] = [t-1]    
+                            else:
+                                start[keys,1].append(t-1)
+
+
             if len(remain) > 0:
                 f_num = len(remain)
                 r = 1 / f_num
@@ -191,16 +203,31 @@ class ffmodel(Thread):
                         usage[f_id][0] = usage[f_id][0] + r
 
                     if remain[f_id] == 0 :
-                        logging.debug("R1++++++++++++packet at flow %d Done at %d." % (f_id, t))
-                        buf[f_id] = packet[f_id]
+                        logging.debug("R1-Done id: %d-%d, at %d" % (f_id, packet[f_id].p_num, t))
+                        buf[f_id].put(packet[f_id])
+
+                        if not (f_id,1) in end.keys(): 
+                            end[f_id,1] = [t]    
+                        else:
+                            end[f_id,1].append(t)
+
                         del remain[f_id]
                         
             for keys in buf:
-                if buf[keys] != None:
+                if not buf[keys].empty():
                     if not keys in remain2.keys():
-                        remain2[keys] = float(buf[keys].rp[1])
-                        buf[keys] = None
-                        logging.debug("R2-Set id: %d , size: %d" % (keys, remain2[keys]))
+                        buf_packet = buf[keys].get()
+                        remain2[keys] = float(buf_packet.rp[1])
+                        # logging.debug("R2-Set id: %d-%d, size: %d at %d" % (keys,buf_packet.p_num, remain2[keys], t))
+
+                        if not (keys,2) in start.keys(): 
+                            start[keys,2] = [t]    
+                        else:
+                            start[keys,2].append(t)
+
+                        # buf[keys] = None
+                        
+                        
             t += 1
 
             if len(remain2) > 0:
@@ -215,7 +242,13 @@ class ffmodel(Thread):
                         usage[f_id][1] = usage[f_id][1] + r2
                         
                     if remain2[f_id] == 0 :
-                        logging.debug("R2************packet %d Done at %d." % (f_id, t ))
+                        # logging.debug("R2-Done id: %d, at %d" % (keys, t))
+
+                        if not (f_id,2) in end.keys(): 
+                            end[f_id,2] = [t]    
+                        else:
+                            end[f_id,2].append(t)
+
                         if f_id == 1 :
                             counter_f1 += 1
                         else:
@@ -234,7 +267,14 @@ class ffmodel(Thread):
         logging.info("Flow 1 : < %.3f , %.3f > Flow 2:< %.3f , %.3f>" % (r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21)))
         logging.info("packet Thoughput %d : %d" % (counter_f1, counter_f2))
         sys.stdout.flush()
-        result = [rp[0][0],rp[0][1],rp[1][0],rp[1][1],r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21)]
+        result = [rp[0][0],rp[0][1],rp[1][0],rp[1][1],r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21),counter_f1, counter_f2]
+
+        # for keys in start:
+        #     print(keys)
+        #     for i,j in zip(start[keys],end[keys]):
+        #         save_to_csv([keys[1], keys[0], i, j])
+                
+        
         # save_to_csv(result)
 
 def main(argv):
@@ -244,6 +284,8 @@ def main(argv):
     t.start()
     t1 = ffmodel()
     t1.start()
+    t.join()
+    t1.join()
 
 if __name__ == "__main__":
     # global rp 
@@ -259,7 +301,8 @@ if __name__ == "__main__":
     # t1 = ffmodel()
     # t1.start()
     RP=[
-        [16,24],[11,8]
+        [10,6],[8,30]
     ]
     main(RP)
+
     pass

@@ -5,7 +5,7 @@ import test
 import time
 
 def save_to_csv(data):
-    with open('check.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
+    with open('calc.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
         w.writerow(data)
 
@@ -39,7 +39,7 @@ def check(f1, f2):
         temp1[index] = item * f2[0]/gcd_num
     for index, item in enumerate(f2):
         temp2[index] = item * f1[0]/gcd_num
-    if temp1[0]+temp2[0] > temp1[1]+temp2[1]:
+    if temp1[0]+temp2[0] > temp1[1]+temp2[1] or (temp1[0] == temp2[0] and temp1[1] == temp2[1]):
         mode = "B"
         print("Bf1:<%.3f, %.3f>  f2:<%.3f, %.3f>" % (temp1[0]/(temp1[0]+temp2[0]), temp1[1]/(temp1[1]+temp2[1]), temp2[0]/(temp1[0]+temp2[0]), temp2[1]/(temp1[1]+temp2[1])))
         result.extend([temp1[0]/(temp1[0]+temp2[0]), temp1[1]/(temp1[1]+temp2[1]), temp2[0]/(temp1[0]+temp2[0]), temp2[1]/(temp1[1]+temp2[1])])
@@ -63,45 +63,53 @@ def check(f1, f2):
         result.extend([float(ans[x]*f1[0]), float(ans[x]*f1[1]), float(ans[y]*f2[0]),float(ans[y]*f2[1])])
     # save_to_csv(result)
 dv = {}
-for i in range(1) :
+for i in range(0) :
     dv[i] = []
     for j in range(2):
         r1 = random.randint(1,30)
         r2 = random.randint(1,30)
         dv[i].append([r1, r2])
 
-dv["test1"] = [
-    [22, 29], [15, 14]
-    ]
-dv["test2"] = [
-    [7, 9], [17, 8]
-    ]
-dv["test3"] = [
-    [6, 4], [4, 10]
-    ]
-dv["test3-1"] = [
-    [7, 4], [4, 10]
-    ]
-dv["test4"] = [
-    [11, 6], [6, 20]
-    ]
-dv["test5"] = [
-    [16, 24], [10, 8]
-    ]  
-dv["test5-1"] = [
-    [16, 24], [11, 8]
-    ]
+# dv["sample"] =[
+#     [4,2],[1,2]
+#     ] 
+# dv["test0"] = [
+#     [3,5],[2,1]
+#     ]
+# dv["test1"] = [
+#     [22, 29], [15, 14]
+#     ]
+# dv["test2"] = [
+#     [7, 9], [17, 8]
+#     ]
+# dv["test3"] = [
+#     [6, 4], [4, 10]
+#     ]
+# dv["test3-1"] = [
+#     [7, 4], [4, 10]
+#     ]
+# dv["test4"] = [
+#     [11, 6], [6, 20]
+#     ]
+# dv["test5"] = [
+#     [16, 24], [10, 8]
+#     ]  
+# dv["test5-1"] = [
+#     [16, 24], [11, 8]
+#     ]
 
-
-
+for i in range(1,10,1):
+    dv[i]=[
+        [4,i],[1,2]
+    ]
 
 
 for keys in dv:
     f1 = dv[keys][0]
     f2 = dv[keys][1]
     check(f1, f2)
-    test.main(dv[keys])
-    time.sleep(3)
+    # test.main(dv[keys])
+    # time.sleep(3)
     # print("Set %s : [%d, %d], [%d, %d]" % (keys, dv[keys][0][0], dv[keys][0][1], dv[keys][1][0], dv[keys][1][1]))
     
 

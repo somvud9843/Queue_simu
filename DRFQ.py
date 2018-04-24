@@ -22,10 +22,10 @@ def init_output_file():
         w.writerow(["f_id", "p_num", "size", "time", "VST", "VFT"])
 
 def save_to_csv(data):
-    with open('mycsvfile.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
+    with open('th_DRFQ.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
-        w.writerow([data.f_id, data.p_num, data.size, data.time, data.VST, data.VFT])
-
+        # w.writerow([data.f_id, data.p_num, data.size, data.time, data.VST, data.VFT])
+        w.writerow(data)
 
 class fifo_q(PriorityQueue):
     def __init__(self):
@@ -49,47 +49,8 @@ class Packet:
         self.size = size
         self.time = g_time
         self.isLast = isLast
+
 # A thread that produces data
-
-
-class Flow(Thread):
-    def __init__(self,q, f_id, bw, size, resource_profile):
-        Thread.__init__(self)
-        self.que = q
-        self.id = f_id
-        # Bandwidth(bps) 100 * M(2^20)
-        self.bw = bw
-        # Packet Size(bits)
-        self.p_size = random.randint(160, 400)*8
-        self.rp = resource_profile
-        self.stopRequest = threading.Event()
-        self.tout = 0
-
-    def run(self):
-        p_seq = 0
-        while True:
-            if self.tout > 0:
-                self.sleep()
-
-            # Produce some data
-            # time.sleep(self.p_size / self.bw) # transmission delay
-            time.sleep(0.01)
-            data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, False)
-            setattr(data, "rp", self.rp)
-            p_seq += 1
-            self.que.put(data.time, data)
-        data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, True)
-        setattr(data, "rp", self.rp)
-        self.que.put(data.time, data)
-
-    def sleep(self):
-        print("Flow %d stop sending for %d seconds" % (self.id, self.tout))
-        time.sleep(self.tout)
-        self.tout = 0
-
-# Queue with resource profile
-
-
 class Flow_one(Thread):
 
     def __init__(self,q, f_id, bw, size, resource_profile):
@@ -104,11 +65,10 @@ class Flow_one(Thread):
         self.rp = resource_profile
         self.stopRequest = threading.Event()
         self.tout = 0
-        self.alive = True
 
     def run(self):
         p_seq = 0
-        while self.alive:
+        while on:
             if self.tout > 0:
                 self.sleep()
 
@@ -193,8 +153,6 @@ class R1(Thread):
         time.sleep(0.000001)
         idle = True
         idel_counter = 0
-        packet_counter = {}
-
         # while self.alive:
         while on:
             if r2Buf.qsize() > 0:
@@ -233,17 +191,15 @@ class R1(Thread):
             time.sleep(next_packet.rp[0] * speed)
             r2Buf.put(buffer)
 
-            if not next_packet.f_id in packet_counter:
-                packet_counter[next_packet.f_id] = 1
-            else:
-                packet_counter[next_packet.f_id] += 1
+            # if not next_packet.f_id in packet_counter:
+            #     packet_counter[next_packet.f_id] = 1
+            # else:
+            #     packet_counter[next_packet.f_id] += 1
             
-            self.packet_counter = packet_counter
+            # self.packet_counter = packet_counter
             
-        logging.info("*******R1******_%d" % (idel_counter))
-        for keys in packet_counter:
-            logging.info("(R1)Flow %d : %d packets" % (keys, packet_counter[keys]))
-        logging.info("Buffer Size: %d " % (r2Buf.qsize()))
+        # for keys in packet_counter:
+        #     logging.info("(R1)Flow %d : %d packets" % (keys, packet_counter[keys]))
 
     def stop(self):
         self.alive = False
@@ -254,12 +210,18 @@ class R2(Thread):
     def __init__(self):
         Thread.__init__(self)
         self.alive = True
+        self.packet_counter = {}
+        moniter = MonitorThread()
+        moniter.start()
 
     def run(self):
         global sys_VT
         global r2Buf
+        global on
+        global start
+        global packet_counter
         idel_counter = 0
-        packet_counter = {}
+       
         # while self.alive:
         while on:
             next_packet = r2Buf.get()
@@ -284,10 +246,14 @@ class R2(Thread):
             sys.stdout.flush()
             # Processing time for packet
             time.sleep(next_packet.rp[1] * speed)
-            if not next_packet.f_id in packet_counter:
-                packet_counter[next_packet.f_id] = 1
+            if not next_packet.f_id in self.packet_counter:
+                self.packet_counter[next_packet.f_id] = 1
             else:
-                packet_counter[next_packet.f_id] += 1
+                self.packet_counter[next_packet.f_id] += 1
+            packet_counter = sum(self.packet_counter.values())
+            if sum(self.packet_counter.values()) > 1000:
+                on = False
+                print("%.3f" % (time.time()-start))
         total_r1 = 0
         total_r2 = 0
         sorted(usage)
@@ -296,23 +262,37 @@ class R2(Thread):
             total_r2 += usage[key][1]
         for key in usage:
             logging.info("Flow %d <%d, %d> --- <%f, %f>" % (key, usage[key][0], usage[key][1],usage[key][0]/total_r1 ,usage[key][1]/total_r2 ))
-        logging.info("*******R2******_%d" % (idel_counter))
-        for keys in packet_counter:
-            logging.info("(R2)Flow %d : %d packets" % (keys, packet_counter[keys]))
+        for keys in self.packet_counter:
+            logging.info("(R2)Flow %d : %d packets" % (keys, self.packet_counter[keys]))
+        print(sum(self.packet_counter.values()))
+        
         sys.stdout.flush()
-
 
     def stop(self):
         self.alive = False
         self.join()
 
+class MonitorThread(Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+    def run(self):
+        global packet_counter
+        i = 0
+        while(1):
+            print(i, packet_counter)
+            save_to_csv([i,packet_counter])
+            i += 1
+            time.sleep(1)
+
+
 
 if __name__ == "__main__":
-    global on
     global usage
     global mode
     global speed
-    speed = 10 ** -2
+    packet_counter = 0
+    start = time.time()
+    speed = 10 ** -3
     usage = {}
     on = True
     mode = "DRFQ"
@@ -329,8 +309,8 @@ if __name__ == "__main__":
         r2Buf = {}
 
     rp = [
-        [20, 15],
-        [1, 9]
+        [22, 20],
+        [17, 23]
     ]
 
     f_num = len(rp)
@@ -358,11 +338,8 @@ if __name__ == "__main__":
     #     time.sleep(1)
 
 
-    time.sleep(3)
-    on = False
-    for t in tList:
-        t.stop()
-        # print("Stop %s" % (t))
+    # time.sleep(5)
+   
         
 
 
