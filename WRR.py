@@ -206,7 +206,6 @@ class R2(Thread):
         global r2Buf
         global r2_usage
         global on
-        global start
         global packet_counter
         t =time.clock()
         while on:
@@ -237,7 +236,7 @@ class R2(Thread):
             packet_counter = sum(self.packet_counter.values())
             if sum(self.packet_counter.values()) > 1000:
                 on = False
-                print("%.3f" % (time.time()-start))
+                print("%.3f" % (time.time()-start_time))
             
         total_r1 = 0
         total_r2 = 0
@@ -347,32 +346,28 @@ class MonitorThread(Thread):
             i += 1
             time.sleep(1)
 
-if __name__ == "__main__":
+def main():
     global speed
     global packet_counter
     global usage
     global r2
     global weight 
+    global on
+    global start_time
+    global r2Buf
+
     packet_counter = 0
-    start = time.time()
     usage = {}
     packet_counter = {}
-    # 10^-2 is best setting, or it will too fast
     speed = 10 ** -3
     on = True
-    r1_usage = {}
-    r2_usage = {}
-    mode = "per-resource"
     # Create the shared queue and launch both threads
     start_time = time.time()
     f_num = 2
-    sys_VT = 0
     # init_output_file()
     q = fifo_q()
     tList=[]
     r2Buf = Queue()
-
-
     rp = [
         [22, 20],
         [17, 23]
@@ -392,15 +387,13 @@ if __name__ == "__main__":
     r1.start()
     r2 = R2()
     r2.start()
-    # ff = ffModel()
-    # ff.start()
-    # tList.append(ff)
     tList.append(t1)
     tList.append(r1)
     tList.append(r2)
 
-    # Make flow stop sending for x seconds. (tout = timeout)
-    # tList[1].tout=2
+
+if __name__ == "__main__":
+    main()
 
 
 

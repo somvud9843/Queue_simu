@@ -15,20 +15,7 @@ def gcd(m, n):
 def check(f1, f2):
     mode = "P"
     result = []
-    # if f1[0]+f2[0] > f1[1]+f2[1]:
-    #     print("Bottleneck: R1")
-    #     if abs(f1[1]-f2[1])/2 + min(f1[1], f2[1]) <= min(f1[0], f2[0]):
-    #         mode = "B"
-    # elif f1[0]+f2[0] == f1[1]+f2[1]:
-    #     print("Same Bottleneck")
-    # else:
-    #     print("Bottleneck: R2")
-    #     if abs(f1[0]-f2[0])/2 + min(f1[0], f2[0]) <= min(f1[1], f2[1]):
-    #         mode = "B"
-    # if (f1[0]>f1[1]) == (f2[0]>f2[1]):
-    #     mode = "B"
-    # if f1[0] == f1[1] or f2[0] == f2[1]:
-    #     mode = "B"
+
     print("Set %s : [%d, %d], [%d, %d]" % (keys, f1[0], f1[1], f2[0], f2[1]))
     result = [f1[0], f1[1], f2[0], f2[1]]
 
@@ -98,9 +85,10 @@ for i in range(0) :
 #     [16, 24], [11, 8]
 #     ]
 
-for i in range(1,10,1):
+for i in range(1,22,1):
     dv[i]=[
-        [4,i],[1,2]
+        [i, 22],
+        [13, 10]
     ]
 
 

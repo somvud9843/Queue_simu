@@ -104,6 +104,7 @@ class Classifier(Thread):
     def run(self):
         global sys_VT
         global actFL
+        global weight
         actFL={}
         while on:
             data = self.q.get()
@@ -115,13 +116,11 @@ class Classifier(Thread):
                 setattr(actFL[data.f_id],"pVFT", 0)
             setattr(temp_q,"f_id", i)
             setattr(data,"VST", max(sys_VT, actFL[data.f_id].pVFT))
-            setattr(data,"VFT", data.VST + data.rp[0])
+            setattr(data,"VFT", data.VST + (data.rp[0]/weight[data.f_id-1]))
             actFL[data.f_id].pVFT = data.VFT
             actFL[data.f_id].put(data)
-            # print(data.__dict__)
             # save_to_csv(data)
             sys.stdout.flush()
-            # print("Done", "There is %d packets in queue." % f_que.que.qsize())
     def stop(self):
         self.alive = False
         self.join()
@@ -147,7 +146,7 @@ class R1(Thread):
                     bf = True
                     if not(bf):
                         logging.debug("Buffer %d : %d" % (keys, r2Buf[keys].qsize()))
-                if not actFL[keys].empty() and r2Buf[keys].qsize() <= 10:
+                if not actFL[keys].empty() and r2Buf[keys].qsize() <= 2:
                     data.append(list(actFL[keys].queue)[0])
                     bf = False
             data = sorted(data, key=attrgetter("time"))
@@ -157,7 +156,6 @@ class R1(Thread):
             except ValueError:
                 if idle:
                     idle = False
-                    # print("Resource_1 idle...")
                     sys.stdout.flush()
                 if self.alive:
                     continue
@@ -196,13 +194,16 @@ class R2(Thread):
         Thread.__init__(self)
         self.alive = True
         self.idle = True
-
+        self.packet_counter = {}
+        moniter = MonitorThread()
+        moniter.start()
 
     def run(self):
         global sys_VT
         global r2Buf
         global r2_usage
         global on
+        global packet_counter
         t =time.clock()
         while on:
             data = []
@@ -237,17 +238,17 @@ class R2(Thread):
                 usage[next_packet.f_id][1] += next_packet.rp[1]
 
             # Coount the number packet been processing
-            if not next_packet.f_id in packet_counter:
-                packet_counter[next_packet.f_id] = 1
+            if not next_packet.f_id in self.packet_counter:
+                self.packet_counter[next_packet.f_id] = 1
             else:
-                packet_counter[next_packet.f_id] += 1
+                self.packet_counter[next_packet.f_id] += 1
 
             r2Buf[next_packet.f_id].task_done()
             self.idle = False
             time.sleep(next_packet.rp[1] * speed)
             self.idle = True
-
-            if sum(packet_counter.values()) > 200:
+            packet_counter = sum(self.packet_counter.values())
+            if sum(self.packet_counter.values()) > 1000:
                 on = False
             
         total_r1 = 0
@@ -258,93 +259,25 @@ class R2(Thread):
             total_r2 += usage[key][1]
         for key in usage:
             logging.info("Flow %d <%d, %d> --- <%f, %f>" % (key, usage[key][0], usage[key][1],usage[key][0]/total_r1 ,usage[key][1]/total_r2 ))
-        for keys in packet_counter:
-            logging.info("Flow %d : %d packets" % (keys, packet_counter[keys]))
+        for keys in self.packet_counter:
+            logging.info("Flow %d : %d packets" % (keys, self.packet_counter[keys]))
         sys.stdout.flush()
 
     def stop(self):
         self.alive = False
         self.join()
 
-class ffModel(Thread):
+
+class MonitorThread(Thread):
     def __init__(self):
-        Thread.__init__(self)
-        self.alive = True
-
+        threading.Thread.__init__(self)
     def run(self):
-        remain = {}
-        remain2 = {}
-        packet = {}
-        usage = {}
-        t = 1 
-        buf = {}
-        while t<3*10**2:
-            for keys in actFL:
-                if not keys in buf:
-                    buf[keys] = None
-                if buf[keys] == None:
-                    if not keys in remain.keys():
-                        if not actFL[keys].empty():
-                            packet[keys] = actFL[keys].get()
-                            remain[keys] = float(packet[keys].rp[0])
-                            # print("Set id: %d , size: %d" % (keys, remain[keys]))
-            if len(remain) > 0:
-                f_num = len(remain)
-                r = 1 / f_num
-                
-                for f_id in list(remain.keys()):
-                    remain[f_id] = remain[f_id] - r
-                    if not (f_id in usage):
-                        usage[f_id]= [r]
-                    else:
-                        usage[f_id][0] = usage[f_id][0] + r
-
-                    if remain[f_id] == 0 :
-                        print("R1----------packet %d Done at %d." % (f_id, t ))
-                        buf[f_id] = packet[f_id]
-                        del remain[f_id]
-                        
-            for keys in buf:
-                if buf[keys] != None:
-                    if not keys in remain2.keys():
-                        remain2[keys] = float(buf[keys].rp[1])
-                        buf[keys] = None
-                        # print("R2----------Set id: %d , size: %d" % (keys, remain2[keys]))
-          
-            t += 1
-            time.sleep(0.001)
-
-            if len(remain2) > 0:
-                f_num2 = len(remain2)
-                r2 = 1 / f_num2
-                
-                for f_id in list(remain2.keys()):
-                    remain2[f_id] = remain2[f_id] - r2
-                    if len(usage[f_id]) <= 2 :
-                        usage[f_id].append(r)
-                    else:
-                        usage[f_id][1] = usage[f_id][1] + r
-                        
-                    if remain2[f_id] == 0 :
-                        # print("R2************packet %d Done at %d." % (f_id, t ))
-                        del remain2[f_id]
-
-            sys.stdout.flush()
-
-        for key in usage:
-            print("--"*50, "R1_share: %d = %d" % (key, usage[key][0]))
-            print("--"*50, "R2_share: %d = %d" % (key, usage[key][1]))
-            
-        r10 = usage[1][0]
-        r11 = usage[1][1]
-        r20 = usage[2][0]
-        r21 = usage[2][1]
-        print("R1 : < %f , %f > R2:< %f , %f>" % (r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21)))
-        sys.stdout.flush()
-
-    def stop(self):
-        self.alive = False
-        self.join()
+        i = 0
+        while on:
+            print(i, packet_counter)
+            # save_to_csv([i,packet_counter])
+            i += 1
+            time.sleep(1)
 
 if __name__ == "__main__":
     global speed
@@ -352,9 +285,8 @@ if __name__ == "__main__":
     global usage
     global r2
     usage = {}
-    packet_counter = {}
-    # 10^-2 is best setting, or it will too fast
-    speed = 10 ** -3
+    packet_counter = 0
+    speed = 10 ** -4
     on = True
     r1_usage = {}
     r2_usage = {}
@@ -371,9 +303,14 @@ if __name__ == "__main__":
     else:
         r2Buf = {}
 
+
     rp = [
-        [4,2],[1, 2]
+        [15, 22],
+        [13, 10]
     ]
+    weight = [0.5259415,1]
+
+
     for i in range(1, f_num+1):
         t = Flow_one(q, i, 200*2**20, 256, rp[i-1])
         t.start()

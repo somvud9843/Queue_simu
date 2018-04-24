@@ -100,7 +100,6 @@ class Classifier(Thread):
         self.alive = True
 
     def run(self):
-        global sys_VT
         global actFL
         actFL={}
         while on:
@@ -110,7 +109,7 @@ class Classifier(Thread):
                 temp_q = Queue()
                 actFL[data.f_id] = temp_q
                 setattr(actFL[data.f_id],"pVFT", 0)
-            setattr(temp_q,"f_id", i)
+            setattr(temp_q,"f_id", data.f_id)
             setattr(data,"VST", max(sys_VT,actFL[data.f_id].pVFT))
             if mode == "DRFQ":
                 setattr(data,"VFT", data.VST + drpt(data))
@@ -218,7 +217,6 @@ class R2(Thread):
         global sys_VT
         global r2Buf
         global on
-        global start
         global packet_counter
         idel_counter = 0
        
@@ -253,7 +251,7 @@ class R2(Thread):
             packet_counter = sum(self.packet_counter.values())
             if sum(self.packet_counter.values()) > 1000:
                 on = False
-                print("%.3f" % (time.time()-start))
+                print("%.3f" % (time.time()-start_time))
         total_r1 = 0
         total_r2 = 0
         sorted(usage)
@@ -276,23 +274,25 @@ class MonitorThread(Thread):
     def __init__(self):
         threading.Thread.__init__(self)
     def run(self):
-        global packet_counter
         i = 0
-        while(1):
+        while on :
             print(i, packet_counter)
             save_to_csv([i,packet_counter])
             i += 1
             time.sleep(1)
 
 
-
-if __name__ == "__main__":
+def main():
     global usage
     global mode
     global speed
+    global r2Buf
+    global start_time
+    global sys_VT
+    global packet_counter
+    global on
     packet_counter = 0
-    start = time.time()
-    speed = 10 ** -3
+    speed = 10 ** -4
     usage = {}
     on = True
     mode = "DRFQ"
@@ -309,8 +309,8 @@ if __name__ == "__main__":
         r2Buf = {}
 
     rp = [
-        [22, 20],
-        [17, 23]
+        [15, 22],
+        [13, 10]
     ]
 
     f_num = len(rp)
@@ -330,18 +330,12 @@ if __name__ == "__main__":
     tList.append(t1)
     tList.append(r1)
     tList.append(r2)
+    
+if __name__ == "__main__":
+    main()
 
     # Make flow stop sending for x seconds. (tout = timeout)
     # tList[1].tout=2
     # while time.time()-start_time < 21600 :
     #     print("Time:", time.time()-start_time, r1.packet_counter.items())
     #     time.sleep(1)
-
-
-    # time.sleep(5)
-   
-        
-
-
-
-
