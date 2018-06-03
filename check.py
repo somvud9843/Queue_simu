@@ -1,7 +1,7 @@
 import random
 from sympy import *
 import csv
-import test
+import ffmodel
 import time
 
 def save_to_csv(data):

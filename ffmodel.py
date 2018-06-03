@@ -9,19 +9,17 @@ from threading import Thread
 from threading import Timer, Thread, Event
 import csv
 import logging
+import collections
 
 
-FORMAT = " %(message)s"
-logging.basicConfig(level = logging.INFO,format=FORMAT)
 
-
-def init_output_file():
-    with open('test.csv', 'w', newline='') as f:  # Just use 'w' mode in 3.x
+def init_output_file(fliename, head):
+    with open(fliename, 'w', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
-        # w.writerow(["f_id", "p_num", "size", "time", "VST", "VFT"])
+        w.writerow(head)
 
-def save_to_csv(data):
-    with open('simu.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
+def save_to_csv(fliename, data):
+    with open(fliename, 'a', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
         w.writerow(data)
 
@@ -57,8 +55,9 @@ def q_go():
     seq = {}
     global qDict
     qDict={}
+    
     while t<1*10**5:
-        id = random.randint(1,2)
+        id = random.randint(1,len(rp))
         if not id in seq:
             seq[id] = 0
         else: 
@@ -72,87 +71,52 @@ def q_go():
         qDict[id].put(p.arr_time, p)
         t += 1
 
+class Resource():
+    def __init__(self, id, inputQueue, outputQueue):
+        self.id = id
+        self.inputQueue= inputQueue
+        self.outputQueue = outputQueue
+        self.packet = {}
 
-def setRP(packet, id):
-    # rp = [
-    #   [15, 17], [6, 1]
-    # ]
-    setattr(packet, "rp", rp[id-1])
-    return packet
-
-
-# def slove_funtion():
-#     x = Symbol('x')
-#     y = Symbol('y')
-#     f=Fraction(4, 2)
-#     f1 = 20 * x + 20 * y - 1
-#     f2 = 1 * x + 1 * y - 1
-#     sol = solve((f1, f2), x, y)
-#     print(sol)
-#     # OUT: {x: 50, y: 30, z: 20}
-
-
-def ffmodel_(qDict):
-    remain = {}
-    remain2 = {}
-    packet = {}
-    usage = {}
-    t = 1 
-    buf  = dict.fromkeys(qDict)
-
-    while t<28*10**3:
-        for keys in qDict:
-            if buf[keys] == None:
+    def process(self, remain, usage):
+  
+        for keys in self.inputQueue:
+            if not keys in self.outputQueue:
+                self.outputQueue[keys] = Queue()
+            if self.outputQueue[keys].qsize()<10 :
+                # print(keys, buf[keys].qsize())
                 if not keys in remain.keys():
-                    if not qDict[keys].empty():
-                        packet[keys] = qDict[keys].get()
-                        remain[keys] = float(packet[keys].rp[0])
-                        # print("Set id: %d , size: %d" % (keys, remain[keys]))
+                    if not self.inputQueue[keys].empty():
+                        self.packet[keys] = self.inputQueue[keys].get()
+                        remain[keys] = float(self.packet[keys].rp[self.id-1])
+                        logging.debug("R%d-Set id: %d-%d, size: %d at %d" % (self.id, keys, self.packet[keys].p_num, remain[keys],t-1))
+
         if len(remain) > 0:
             f_num = len(remain)
             r = 1 / f_num
-            
             for f_id in list(remain.keys()):
                 remain[f_id] = remain[f_id] - r
                 if not (f_id in usage):
                     usage[f_id]= [r]
                 else:
-                    usage[f_id][0] = usage[f_id][0] + r
+                    if len(usage[f_id]) < self.id:
+                        usage[f_id].append(r)
+                    else:
+                        usage[f_id][self.id-1] = usage[f_id][self.id-1] + r
 
-                if remain[f_id] == 0 :
-                    # print("R1----------packet %d Done at %d." % (f_id, t ))
-                    buf[f_id] = packet[f_id]
-                    del remain[f_id]
+                if remain[f_id] <= 0 :
+                    if f_id in self.packet:
+                        logging.debug("R%d-Done id: %d-%d, at %d" % (self.id, f_id, self.packet[f_id].p_num, t))
+                        self.outputQueue[f_id].put(self.packet[f_id])
+                        del remain[f_id]
                     
-        for keys in buf:
-            if buf[keys] != None:
-                if not keys in remain2.keys():
-                    remain2[keys] = float(buf[keys].rp[1])
-                    buf[keys] = None
-                    # print("R2----------Set id: %d , size: %d" % (keys, remain2[keys]))
-        print(t)
-        t += 1
+        return remain, usage
 
-        if len(remain2) > 0:
-            f_num2 = len(remain2)
-            r2 = 1 / f_num2
-            
-            for f_id in list(remain2.keys()):
-                remain2[f_id] = remain2[f_id] - r2
-                if len(usage[f_id]) <= 2 :
-                    usage[f_id].append(r)
-                else:
-                    usage[f_id][1] = usage[f_id][1] + r
-                    
-                if remain2[f_id] == 0 :
-                    # print("R2************packet %d Done at %d." % (f_id, t ))
-                    del remain2[f_id]
-        
-        sys.stdout.flush()
-    for key in usage:
-            print("--"*50, "R1_share: %d = %d" % (key, usage[key][0]))
-            print("--"*50, "R2_share: %d = %d" % (key, usage[key][1]))
 
+
+def setRP(packet, id):
+    setattr(packet, "rp", rp[id-1])
+    return packet
 
 class ffmodel(Thread):
     def __init__(self):
@@ -160,149 +124,212 @@ class ffmodel(Thread):
         self.stop_event = Event()
 
     def run(self):
-        time.sleep(1)
-        remain = {}
-        remain2 = {}
-        packet = {}
+        global p_counter
+        global t 
+        p_counter = []
         usage = {}
         t = 1
-        # buf  = dict.fromkeys(self.q)
         buf = {}
-        counter_f1 = 0
-        counter_f2 = 0
-        start={}
-        end={}
-        # print(qDict[1].get().__dict__)
-        # while t<2*10**4:
-        while counter_f1+counter_f2<20000:
-            for keys in qDict:
-                if not keys in buf:
-                    buf[keys] = Queue()
-                if buf[keys].qsize()<10 :
-                    # print(keys, buf[keys].qsize())
-                    if not keys in remain.keys():
-                        if not qDict[keys].empty():
-                            packet[keys] = qDict[keys].get()
-                            remain[keys] = float(packet[keys].rp[0])
-                            logging.debug("R1-Set id: %d-%d, size: %d at %d" % (keys, packet[keys].p_num, remain[keys],t-1))
+        counter = [0] * len(rp)
+        remainList = [{}]
+        resourceList = []
+        #  init the First resource
+        inputQueueList = [qDict]
+        outputQueueList = [buf]
+        resourceList.append(Resource(1, inputQueueList[0], outputQueueList[0]))
+        for i in range(2, num_resource, 1):
+            remainList.append({})
+            outputQueueList.append({})
+            resourceList.append(Resource(i, outputQueueList[i-2], outputQueueList[i-1]))
+        remainList.append({}) # The last Resource's remain
 
-                            if not (keys,1) in start.keys(): 
-                                start[keys,1] = [t-1]    
-                            else:
-                                start[keys,1].append(t-1)
+        while sum(counter)<totalPacket:
 
+            for i in range(0, len(resourceList), 1):
+                remainList[i], usage = resourceList[i].process(remainList[i], usage)
+                t += 1
 
-            if len(remain) > 0:
-                f_num = len(remain)
-                r = 1 / f_num
-                for f_id in list(remain.keys()):
-                    remain[f_id] = remain[f_id] - r
-                    if not (f_id in usage):
-                        usage[f_id]= [r]
-                    else:
-                        usage[f_id][0] = usage[f_id][0] + r
+            for keys in outputQueueList[num_resource-2]:
+                if not outputQueueList[num_resource-2][keys].empty():
+                    if not keys in remainList[num_resource-1]:
+                        buf_packet = outputQueueList[num_resource-2][keys].get()
+                        remainList[num_resource-1][keys] = float(buf_packet.rp[num_resource-1])
+                        logging.debug("R%d-Set id: %d-%d, size: %d at %d" % (num_resource, keys, buf_packet.p_num, remainList[num_resource-1][keys], t))
 
-                    if remain[f_id] == 0 :
-                        logging.debug("R1-Done id: %d-%d, at %d" % (f_id, packet[f_id].p_num, t))
-                        buf[f_id].put(packet[f_id])
-
-                        if not (f_id,1) in end.keys(): 
-                            end[f_id,1] = [t]    
-                        else:
-                            end[f_id,1].append(t)
-
-                        del remain[f_id]
-                        
-            for keys in buf:
-                if not buf[keys].empty():
-                    if not keys in remain2.keys():
-                        buf_packet = buf[keys].get()
-                        remain2[keys] = float(buf_packet.rp[1])
-                        # logging.debug("R2-Set id: %d-%d, size: %d at %d" % (keys,buf_packet.p_num, remain2[keys], t))
-
-                        if not (keys,2) in start.keys(): 
-                            start[keys,2] = [t]    
-                        else:
-                            start[keys,2].append(t)
-
-                        # buf[keys] = None
-                        
-                        
-            t += 1
-
-            if len(remain2) > 0:
-                f_num2 = len(remain2)
-                r2 = 1 / f_num2
+            if len(remainList[num_resource-1]) > 0:
+                f_num2 = len(remainList[num_resource-1])
+                r = 1 / f_num2
                 
-                for f_id in list(remain2.keys()):
-                    remain2[f_id] = remain2[f_id] - r2
-                    if len(usage[f_id]) <= 2 :
-                        usage[f_id].append(r2)
+                for f_id in list(remainList[num_resource-1].keys()):
+                    remainList[num_resource-1][f_id] = remainList[num_resource-1][f_id] - r
+                    if len(usage[f_id]) < num_resource :
+                        usage[f_id].append(r)
                     else:
-                        usage[f_id][1] = usage[f_id][1] + r2
+                        usage[f_id][num_resource-1] = usage[f_id][num_resource-1] + r
                         
-                    if remain2[f_id] == 0 :
-                        # logging.debug("R2-Done id: %d, at %d" % (keys, t))
-
-                        if not (f_id,2) in end.keys(): 
-                            end[f_id,2] = [t]    
-                        else:
-                            end[f_id,2].append(t)
-
-                        if f_id == 1 :
-                            counter_f1 += 1
-                        else:
-                            counter_f2 += 1
-                        del remain2[f_id]
-            
+                    if remainList[num_resource-1][f_id] <= 0 :
+                        logging.debug("R%d-Done id: %d-%d, at %d" % (num_resource, f_id, buf_packet.p_num, t))
+                        
+                        counter[f_id-1] += 1
+                        del remainList[num_resource-1][f_id]
+                        
+            t -= num_resource-2
             sys.stdout.flush()
-        for key in usage:
-                logging.debug( "R1_share: %d = %d" % (key, usage[key][0]))
-                logging.debug( "R2_share: %d = %d" % (key, usage[key][1]))
-                
-        r10 = usage[1][0]
-        r11 = usage[1][1]
-        r20 = usage[2][0]
-        r21 = usage[2][1]
-        logging.info("Flow 1 : < %.3f , %.3f > Flow 2:< %.3f , %.3f>" % (r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21)))
-        logging.info("packet Thoughput %d : %d" % (counter_f1, counter_f2))
-        sys.stdout.flush()
-        result = [rp[0][0],rp[0][1],rp[1][0],rp[1][1],r10/(r10+r20),r11/(r11+r21),r20/(r10+r20),r21/(r11+r21),counter_f1, counter_f2]
 
-        # for keys in start:
-        #     print(keys)
-        #     for i,j in zip(start[keys],end[keys]):
-        #         save_to_csv([keys[1], keys[0], i, j])
+        for key in sorted(usage.keys()):
+            for resource in usage[key]:
+                logging.debug( "Flow %d R%d_share: %d" % (key, usage[key].index(resource), resource))         
+                # logging.debug( "R1_share: %d = %d" % (key, usage[key][0]))
+                # logging.debug( "R2_share: %d = %d" % (key, usage[key][1]))
                 
+        
+        self.output(usage, counter)
+        p_counter = counter
+        sys.stdout.flush()
         
         # save_to_csv(result)
 
+    def output(self, d, c):
+        total = [0] * len(d[1])
+        for i in range(0, len(d[1]), 1):
+            for keys in d:
+                total[i] += d[keys][i]
+        for keys in sorted(d.keys()):
+            out_str = "Flow %d : <" % keys
+            for i in range(0, len(d[keys]), 1):
+                out_str += "%.3f, " % (d[keys][i]/total[i])
+            out_str = out_str[:-2] + ">"
+            logging.info(out_str)
+        pkt = "packet Thoughput"
+        for pkt_num in c:
+            pkt += " "+ str(pkt_num)+":"
+        logging.warning(pkt[:-1])
+
 def main(argv):
     global rp
+    global num_resource
+    global totalPacket
+    totalPacket = 5000
     rp = argv
+    num_resource = len(rp[0])
+    print(rp)
     t = Thread(target=q_go)
     t.start()
+    time.sleep(0.1)
     t1 = ffmodel()
     t1.start()
     t.join()
     t1.join()
+    return p_counter
+
+
+def afterCheating(data):
+    maxIndex = data.index(max(data))
+    r = list(range(0,len(data)))
+    r.remove(maxIndex)
+    howmany = random.randint(1, len(data)-1)
+
+    for i in range(0, howmany, 1):
+        change_index = random.choice(r)
+        r.remove(change_index)
+        temp = list(range(1, data[change_index])) + list(range(data[change_index]+1, data[maxIndex]))
+        data[change_index] = random.choice(temp)
+    return data
+
+def generateRP(totalNumber, resourceNumber = 2):
+    data = []
+    for i in range(totalNumber):
+        temp = []
+        for j in range(resourceNumber):
+            temp.append(random.randint(1,30))
+        data.append(temp)
+    return data
+
+def testFixRatioCheat():
+    r = []
+    cheatProfit = []
+    totoalFlowNumber = 2
+    totalResourceNumber = 2
+    cheatRatio = 0.5
+    # header = ["Number of flows", "cheat", "cheated"]
+    # init_output_file("cheatProfit(50%).csv", header) 
+    rp_init = [
+        [16,15],
+        [5,1]
+    ]
+    while(1):
+        # 50% of flows will cheat, find how much cheat flows can get, and cheated can get
+        for flow_num in range(2, totoalFlowNumber+1, 1):    
+            # rp_init = generateRP(flow_num, totalResourceNumber)
+            for i in range(2):
+                if not i % 2 == 0:
+                    for j in range(int(flow_num * cheatRatio)):
+                        try:
+                            rp_init[j] = afterCheating(rp_init[j])
+                        except:
+                            print("Error:" ,sys.exc_info()[0])
+                            print("Set:", rp_init[j])
+                            
+                r.append(main(rp_init))
+
+        for i in range(0, len(r), 2):
+            temp = []
+            for j in range(0, len(r[i]), 1):
+                temp.append((r[i+1][j] - r[i][j]) / r[i][j])
+            cheatProfit.append(temp)
+
+        for i in cheatProfit:
+            cheatNum = int(len(i)/2)
+            cheat = sum(i[:cheatNum]) / cheatNum
+            cheated = sum(i[len(i)-cheatNum:]) / (len(i)-cheatNum)
+            data = [len(i), cheat, cheated]
+            print(data)
+            # save_to_csv("cheatProfit(50%).csv",data)
+        break
+        r = []
+        cheatProfit = []
 
 if __name__ == "__main__":
-    # global rp 
-    # tList = []
-    # tList2 = []
-    # rpList = [
-    #     [[14, 8], [7, 10]],
-    #     [[1, 2], [18, 10]],
-    #     [[7, 4], [9, 1]]
+
+    FORMAT = " %(message)s"
+    logging.basicConfig(level = logging.INFO,format=FORMAT)
+    testFixRatioCheat()
+else:
+    logging.propagate = False
+   
+    #    print("Flow num: %d, cheat: %.3f, cheated: %.3f" % (len(i), cheat, cheated))
+
+    # for cheatRatio in range(1, 10, 1):    
+    #     for i in range(2):
+    #         if not i % 2 == 0:
+    #             for j in range(int(totoalFlowNumber * cheatRatio/10)):
+    #                 rp_init[j] = afterCheating(rp_init[j])
+    #         r.append(main(rp_init))
+    
+
+    # for i in range(0, len(r), 2):
+    #     temp = []
+    #     for j in range(0, len(r[i]), 1):
+    #         temp.append((r[i+1][j] - r[i][j]) / r[i][j])
+    #     cheatProfit.append(temp)
+    # print(cheatProfit)
+
+    # print(r)    
+    
+    # avgCheat = []
+    # cheatRatio = 0.1
+    # for v in cheatProfit:
+    #     avg = sum(v[:int(len(v)*cheatRatio)]) / int(len(v)*cheatRatio)
+    #     avgCheat.append(avg)
+    #     cheatRatio += 0.1
+    # print(avgCheat, cheatRatio)
+
+    # rp = [
+    #     [1, 8, 3],
+    #     [1, 1, 5],
+    #     [9, 1, 7]
     # ]
-    # t = Thread(target=q_go)
-    # t.start()
-    # t1 = ffmodel()
-    # t1.start()
-    RP=[
-        [10,6],[8,30]
-    ]
-    main(RP)
+    
+    
 
     pass

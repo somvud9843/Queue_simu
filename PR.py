@@ -1,27 +1,20 @@
 from queue import Queue
 from queue import PriorityQueue
-from operator import attrgetter
 from operator import add
 from threading import Thread
-from threading import Timer, Thread, Event
-import threading
 import sys
 import time
 import random
+import threading
 import csv
-import logging
+from operator import attrgetter
 import os
-
+import logging
 
 clear = lambda: os.system('cls')
 clear()
 FORMAT = " %(message)s"
 logging.basicConfig(level = logging.INFO,format=FORMAT)
-
-def init_output_file():
-    with open('mycsvfile.csv', 'w', newline='') as f:  # Just use 'w' mode in 3.x
-        w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
-        w.writerow(["f_id", "p_num", "size", "time", "VST", "VFT"])
 
 def save_to_csv(data):
     with open(filename, 'a', newline='') as f:  # Just use 'w' mode in 3.x
@@ -51,26 +44,30 @@ class Packet:
         self.size = size
         self.time = g_time
         self.isLast = isLast
-
 # A thread that produces data
+
+# Queue with resource profile
+
 class Flow_one(Thread):
 
-    def __init__(self,q, f_id, bw, size, resource_profile):
+    def __init__(self,q, f_id, bw, size, resource_profile, weight):
         Thread.__init__(self)
         self.que = q
         self.id = f_id
         # Bandwidth(bps) 100 * M(2^20)
         self.bw = bw
         # Packet Size(bits)
-        # self.p_size = random.randint(160, 400)*8
-        self.p_size = 50 * 8
+        self.p_size = random.randint(10, 50)*8
         self.rp = resource_profile
         self.stopRequest = threading.Event()
         self.tout = 0
+        self.alive = True
+        self.weight = weight
 
     def run(self):
         p_seq = 0
         while on:
+        # while self.alive:
             if self.tout > 0:
                 self.sleep()
 
@@ -79,10 +76,13 @@ class Flow_one(Thread):
             # time.sleep(0.1)
             data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, False)
             setattr(data, "rp", self.rp)
+            setattr(data, "weight", self.weight)
             p_seq += 1
             self.que.put(data.time, data)
+            
         data = Packet(self.id, p_seq, self.p_size, time.time()-start_time, True)
         setattr(data, "rp", self.rp)
+        setattr(data, "weight", self.weight)
         self.que.put(data.time, data)
 
     def sleep(self):
@@ -102,6 +102,7 @@ class Classifier(Thread):
         self.alive = True
 
     def run(self):
+        global sys_VT
         global actFL
         actFL={}
         while on:
@@ -112,23 +113,15 @@ class Classifier(Thread):
                 actFL[data.f_id] = temp_q
                 setattr(actFL[data.f_id],"pVFT", 0)
             setattr(temp_q,"f_id", data.f_id)
-            setattr(data,"VST", max(sys_VT,actFL[data.f_id].pVFT))
-            setattr(data,"VFT", data.VST + drpt(data))
+            setattr(data,"VST", max(sys_VT, actFL[data.f_id].pVFT))
+            setattr(data,"VFT", data.VST + (data.rp[0]/data.weight))
             actFL[data.f_id].pVFT = data.VFT
             actFL[data.f_id].put(data)
-            # logging.debug(data.__dict__)
             # save_to_csv(data)
             sys.stdout.flush()
-            # print("Done", "There is %d packets in queue." % f_que.que.qsize())
-
     def stop(self):
         self.alive = False
         self.join()
-
-# Calculate Packet i's Dominant Resource processing time
-def drpt(pkt):
-    DR = max(pkt.rp)
-    return DR
 
 class Scheduler(Thread):
     def __init__(self, inQueue, outQueue):
@@ -157,7 +150,7 @@ class Scheduler(Thread):
 
             
             # logging.debug("Min VST packet:%d-%d" % (next_packet.f_id,next_packet.p_num))
-            self.outputQueue.put(next_packet)
+            self.outputQueue.put(next_packet)      
 
 class Resource(Thread):
     def __init__(self, id, inQueue, outQueue):
@@ -216,20 +209,19 @@ class Resource(Thread):
             pkt += " "+ str(c[keys])+":"
         logging.info(pkt[:-1])
 
+
 class MonitorThread(Thread):
     def __init__(self):
         threading.Thread.__init__(self)
     def run(self):
         i = 0
-        while on :
-            total_pacekt = sum(packet_counter.values())
-            print("Time(sec): %d, Total packet: %d" % (i, total_pacekt))
-            # save_to_csv([i,total_pacekt])
+        while on:
+            print(i, packet_counter)
+            # save_to_csv([i,packet_counter])
             i += 1
             time.sleep(1)
 
-
-def main(rp):
+def main(rp, weight):
     global usage
     global speed
     global start_time
@@ -251,10 +243,10 @@ def main(rp):
     # init_output_file()
     q = fifo_q()
     tList=[]
-    r2Buf = Queue()
+    r2Buf = {}
     f_num = len(rp)
     for i in range(1, f_num+1):
-        t = Flow_one(q, i, 200*2**20, 400, rp[i-1])
+        t = Flow_one(q, i, 200*2**20, 400, rp[i-1], weight)
         t.start()
         tList.append(t)
 
@@ -279,17 +271,12 @@ def main(rp):
     for t in tList:
         t.join()
 
-    
-    
+
 if __name__ == "__main__":
     rp = [
-        [3, 7, 20],
-        [10, 4, 6]
+        [26, 4],
+        [3, 4]
     ]
-    main(rp)
+    weight = 1
+    main(rp , weight)
 
-    # Make flow stop sending for x seconds. (tout = timeout)
-    # tList[1].tout=2
-    # while time.time()-start_time < 21600 :
-    #     print("Time:", time.time()-start_time, r1.packet_counter.items())
-    #     time.sleep(1)

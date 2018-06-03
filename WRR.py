@@ -21,7 +21,7 @@ def init_output_file():
         w.writerow(["f_id", "p_num", "size", "time", "VST", "VFT"])
 
 def save_to_csv(data):
-    with open('th_PR.csv', 'a', newline='') as f:  # Just use 'w' mode in 3.x
+    with open(filename, 'a', newline='') as f:  # Just use 'w' mode in 3.x
         w = csv.writer(f, delimiter =',',quotechar ="'",quoting=csv.QUOTE_MINIMAL)
         # w.writerow([data.f_id, data.p_num, data.size, data.time, data.VST, data.VFT])
         w.writerow(data)
@@ -102,7 +102,6 @@ class Classifier(Thread):
         self.alive = True
 
     def run(self):
-        global sys_VT
         global actFL
         actFL={}
         r2Buf = Queue(maxsize=0)
@@ -125,29 +124,12 @@ class Classifier(Thread):
         self.alive = False
         self.join()
 
-# Calculate Packet i's Dominant Resource processing time
-def drpt(pkt):
-    DR = max(pkt.rp)
-    return DR
-    # Fix demand
-    '''
-    n = pkt.f_id
-    return{
-        1:4,
-        2:3,
-    }[n]
-    '''
-
-
 class R1(Thread):
     def __init__(self):
         Thread.__init__(self)
         self.alive = True
     def run(self):
-        global sys_VT
-        global mode
         global r2Buf
-        global r1_usage
         # t = time.clock()
         counter = {}
         
@@ -183,9 +165,6 @@ class R1(Thread):
                             time.sleep(next_packet.rp[0] * speed)
                             
                             r2Buf.put(buffer)
-                        
-
-                    
 
     def stop(self):
         self.alive = False
@@ -234,7 +213,7 @@ class R2(Thread):
             time.sleep(next_packet.rp[1] * speed)
             self.idle = True
             packet_counter = sum(self.packet_counter.values())
-            if sum(self.packet_counter.values()) > 1000:
+            if sum(self.packet_counter.values()) > 2000:
                 on = False
                 print("%.3f" % (time.time()-start_time))
             
@@ -346,7 +325,7 @@ class MonitorThread(Thread):
             i += 1
             time.sleep(1)
 
-def main():
+def main(rp, w=1):
     global speed
     global packet_counter
     global usage
@@ -355,6 +334,8 @@ def main():
     global on
     global start_time
     global r2Buf
+    global filename
+    filename = "data/th_DRFQ(%s,%s,%s,%s).csv" % (rp[0][0],rp[0][1],rp[1][0],rp[1][1])
 
     packet_counter = 0
     usage = {}
@@ -368,12 +349,8 @@ def main():
     q = fifo_q()
     tList=[]
     r2Buf = Queue()
-    rp = [
-        [22, 20],
-        [17, 23]
-    ]
 
-    weight = [1.149151,1]
+    weight = [w,1]
     for i in range(1, f_num+1):
         t = Flow_one(q, i, 200*2**20, 512, rp[i-1])
         t.start()
@@ -390,10 +367,17 @@ def main():
     tList.append(t1)
     tList.append(r1)
     tList.append(r2)
+    for t in tList:
+        t.join()
 
 
 if __name__ == "__main__":
-    main()
+    rp = [
+            [3, 3],
+            [27, 4]
+        ]
+    w = 1
+    main(rp, w)
 
 
 
